@@ -12,7 +12,8 @@ import sys
 from pathlib import Path
 
 from od_platform.common.logging_utils import get_logger
-from od_platform.common.paths import DATASET_CONFIGS_DIR, LOGGING_DIR
+from od_platform.common.paths import LOGGING_DIR
+from od_platform.common.refs import resolve_yaml
 from od_platform.data_validation.registry import ValidationOptions
 from od_platform.data_validation.service import validate_dataset
 
@@ -66,8 +67,7 @@ def _resolve_yaml_path(dataset: str | None, yaml_path: Path | None) -> Path:
     if yaml_path is not None:
         return yaml_path
     assert dataset is not None
-    name = dataset if dataset.endswith(".yaml") else f"{dataset}.yaml"
-    return DATASET_CONFIGS_DIR / name
+    return resolve_yaml(dataset)
 
 
 if __name__ == "__main__":
