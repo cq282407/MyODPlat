@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling>=1.18.0"]
+build-backend = "hatchling.build"
+
+
+[project]
+name = 'od-platform'
+dynamic = ['version']
+description = "ODPlatform — 目标检测开发平台核心引擎"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{ name = "XiaoLiang", email = "xiaoliang@example.com" }]
+keywords = ["object-detection", "yolo", "deep-learning", "ml-platform"]
+dependencies = [
+    "colorlog>=6.10.1",
+    "pydantic>=2.0",
+    "psutil>=7.2.2",
+    "PyYAML>=6.0",
+    "torch>=2.1.1",
+    "ultralytics>=8.4.82",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+
+[project.scripts]
+odp-init = 'od_platform.cli.init_project:initialize_project'
+odp-reset = 'od_platform.cli.reset_project:main'
+odp-transform = 'od_platform.cli.transform_data:main'
+odp-validate = 'od_platform.cli.validate_data:main'
+odp-gen-config = 'od_platform.runtime_config.generator:main'
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/od_platform"]
+dev-mode-dirs = ["src"]
+
+[tool.hatch.version]
+path = "src/od_platform/_version.py"

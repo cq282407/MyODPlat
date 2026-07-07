@@ -1,0 +1,60 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Runtime artifacts
+apps/platform/logging/*
+!apps/platform/logging/README.md
+runs/*
+!runs/README.md
+*.log
+*.pkl
+*.h5
+*.npz
+
+# Large project assets
+data/raw/*
+!data/raw/README.md
+data/train/
+data/val/
+data/test/
+data/processed/*
+!data/processed/README.md
+models/pretrained/*
+!models/pretrained/README.md
+models/checkpoints/*
+!models/checkpoints/README.md
+models/trained/*
+!models/trained/README.md
+models/**/*.pt
+
+# Secrets
+*.pem
+*.key
+*.token
+
+老师讲解文档/
