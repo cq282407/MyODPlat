@@ -35,6 +35,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-id", default=None, help="Optional fixed run id for reproducible output paths")
     parser.add_argument("--output-dir", type=Path, default=None, help="Optional report output directory")
     parser.add_argument("--operator", default=None, help="Operator name written to the report")
+    parser.add_argument("--operator-role", default=None, help="Operator role/team written to audit artifacts")
+    parser.add_argument("--device-tag", default=None, help="Human-readable device tag, e.g. lab-laptop-01")
+    parser.add_argument("--operation", default="data_validation", help="Operation name written to audit artifacts")
+    parser.add_argument("--notes", default=None, help="Free-form validation note written to reports")
     args = parser.parse_args(argv)
 
     get_logger(base_path=LOGGING_DIR, log_type="validate")
@@ -44,6 +48,10 @@ def main(argv: list[str] | None = None) -> int:
         run_id=args.run_id,
         output_dir=args.output_dir,
         operator=args.operator,
+        operator_role=args.operator_role,
+        device_tag=args.device_tag,
+        operation=args.operation,
+        notes=args.notes,
     )
 
     try:

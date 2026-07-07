@@ -34,7 +34,13 @@ def test_validate_dataset_clean_case_writes_artifacts(tmp_path: Path) -> None:
     assert report.overall_severity == CheckSeverity.PASS
     assert (run_dir / "report.json").exists()
     assert (run_dir / "report.md").exists()
+    assert (run_dir / "report.html").exists()
     assert (run_dir / "data_dictionary.json").exists()
+    assert (run_dir / "audit.json").exists()
+    assert (run_dir / "recommendations.json").exists()
+    assert (run_dir / "repair_items.csv").exists()
+    assert (run_dir / "repair_items.xlsx").exists()
+    assert (run_dir / "charts" / "class_distribution.svg").exists()
 
 
 def test_validate_dataset_catches_bad_label_format(tmp_path: Path) -> None:
@@ -95,7 +101,7 @@ def _make_yolo_dataset(root: Path) -> Path:
     for split in ("train", "val", "test"):
         (root / "images" / split).mkdir(parents=True, exist_ok=True)
         (root / "labels" / split).mkdir(parents=True, exist_ok=True)
-        (root / "images" / split / f"{split}_0.jpg").write_bytes(b"fake-image")
+        _write_test_image(root / "images" / split / f"{split}_0.jpg")
         (root / "labels" / split / f"{split}_0.txt").write_text(
             "0 0.500000 0.500000 0.250000 0.250000\n",
             encoding="utf-8",
@@ -115,3 +121,9 @@ def _make_yolo_dataset(root: Path) -> Path:
         encoding="utf-8",
     )
     return yaml_path
+
+
+def _write_test_image(path: Path) -> None:
+    from PIL import Image
+
+    Image.new("RGB", (8, 8), color=(255, 255, 255)).save(path, format="JPEG")

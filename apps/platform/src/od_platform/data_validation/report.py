@@ -26,6 +26,13 @@ class ValidationReport:
     results: List[CheckResult]
     run_dir: Path
     operator: Optional[str] = None
+    operator_role: Optional[str] = None
+    device_tag: Optional[str] = None
+    operation: str = "data_validation"
+    notes: Optional[str] = None
+    audit: Dict[str, Any] | None = None
+    recommendations: List[Dict[str, Any]] | None = None
+    artifacts: Dict[str, str] | None = None
     duration_seconds: float = 0.0
     started_at_iso: str = ""
     tool_version: str = __version__
@@ -65,6 +72,30 @@ class ValidationReport:
         return self.run_dir / "data_dictionary.json"
 
     @property
+    def html_path(self) -> Path:
+        return self.run_dir / "report.html"
+
+    @property
+    def repair_csv_path(self) -> Path:
+        return self.run_dir / "repair_items.csv"
+
+    @property
+    def repair_excel_path(self) -> Path:
+        return self.run_dir / "repair_items.xlsx"
+
+    @property
+    def recommendations_path(self) -> Path:
+        return self.run_dir / "recommendations.json"
+
+    @property
+    def audit_path(self) -> Path:
+        return self.run_dir / "audit.json"
+
+    @property
+    def charts_dir(self) -> Path:
+        return self.run_dir / "charts"
+
+    @property
     def failed_results(self) -> List[CheckResult]:
         return [result for result in self.results if result.severity in {CheckSeverity.WARNING, CheckSeverity.ERROR}]
 
@@ -79,6 +110,10 @@ class ValidationReport:
             "schema_version": 1,
             "run_id": self.run_id,
             "operator": self.operator,
+            "operator_role": self.operator_role,
+            "device_tag": self.device_tag,
+            "operation": self.operation,
+            "notes": self.notes,
             "tool_version": self.tool_version,
             "started_at": self.started_at_iso,
             "duration_seconds": round(self.duration_seconds, 3),
@@ -86,6 +121,9 @@ class ValidationReport:
             "overall_severity": self.overall_severity,
             "exit_code": self.exit_code,
             "severity_counts": self.severity_counts(),
+            "audit": _json_safe(self.audit or {}),
+            "recommendations": _json_safe(self.recommendations or []),
+            "artifacts": _json_safe(self.artifacts or {}),
             "data_dictionary": self.snapshot.as_data_dictionary(),
             "results": [
                 {

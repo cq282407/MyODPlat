@@ -42,6 +42,10 @@ class ValidationOptions:
     run_id: Optional[str] = None
     output_dir: Optional[Path] = None
     operator: Optional[str] = None
+    operator_role: Optional[str] = None
+    device_tag: Optional[str] = None
+    operation: str = "data_validation"
+    notes: Optional[str] = None
     details_preview_limit: int = 20
 
 

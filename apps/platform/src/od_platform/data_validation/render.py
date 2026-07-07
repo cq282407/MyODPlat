@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from od_platform.data_validation.registry import CheckSeverity
 from od_platform.data_validation.report import ValidationReport
@@ -19,12 +20,13 @@ H2_LINE = "-" * 72
 
 
 def render_to_logger(report: ValidationReport, log: logging.Logger | None = None) -> None:
-    """Render a teacher-style five-section terminal report."""
+    """Render a concise terminal report."""
 
     log = log or logger
     _render_header(report, log)
     _render_dataset_summary(report, log)
     _render_check_overview(report, log)
+    _render_recommendations(report, log)
     if report.failed_results:
         _render_failure_details(report, log)
     _render_footer(report, log)
@@ -32,12 +34,15 @@ def render_to_logger(report: ValidationReport, log: logging.Logger | None = None
 
 def _render_header(report: ValidationReport, log: logging.Logger) -> None:
     log.info(H1_LINE)
-    log.info("                       YOLO 数据集验证报告")
+    log.info("                    ODPlatform Data Validation Report")
     log.info(H1_LINE)
-    log.info("  run_id   %s", report.run_id)
-    log.info("  yaml     %s", report.yaml_path)
+    log.info("  run_id    %s", report.run_id)
+    log.info("  yaml      %s", report.yaml_path)
+    log.info("  operator  %s", report.operator or "N/A")
+    log.info("  role      %s", report.operator_role or "N/A")
+    log.info("  device    %s", report.device_tag or "N/A")
     log.info(
-        "  task     %-8s  耗时  %.2fs  severity  %s  exit_code  %s",
+        "  task      %-8s  duration %.2fs  severity %s  exit_code %s",
         report.snapshot.task_type,
         report.duration_seconds,
         report.overall_severity,
@@ -48,24 +53,25 @@ def _render_header(report: ValidationReport, log: logging.Logger) -> None:
 def _render_dataset_summary(report: ValidationReport, log: logging.Logger) -> None:
     snapshot = report.snapshot
     log.info(H2_LINE)
-    log.info("  数据集摘要")
+    log.info("  Dataset Summary")
 
     if snapshot.class_names:
         names = ", ".join(snapshot.class_names)
-        log.info("    类别:  %s  (nc=%s)", names, snapshot.nc)
+        log.info("    classes: %s (nc=%s)", names, snapshot.nc)
     else:
-        log.info("    类别:  (未读取到，yaml_schema 应已报告)")
+        log.info("    classes: unavailable")
 
     if not snapshot.stats_per_split:
-        log.info("    (无任何 split 可统计)")
+        log.info("    no split statistics available")
         return
 
     for split in snapshot.splits:
         stat = snapshot.stats_per_split[split]
         log.info(
-            "    %-6s:  %6s 张图  /  %6s 标注  /  %6s 实例",
+            "    %-6s: %6s images / %6s labels / %6s annotated / %6s instances",
             split,
             f"{stat.image_count:,}",
+            f"{stat.label_count:,}",
             f"{stat.annotated_count:,}",
             f"{stat.total_instances:,}",
         )
@@ -74,117 +80,88 @@ def _render_dataset_summary(report: ValidationReport, log: logging.Logger) -> No
 def _render_check_overview(report: ValidationReport, log: logging.Logger) -> None:
     counts = report.severity_counts()
     log.info(H2_LINE)
-    log.info("  检查项一览")
+    log.info("  Check Overview")
     log.info(
-        "    汇总: %s PASS / %s INFO / %s WARNING / %s ERROR",
+        "    summary: %s PASS / %s INFO / %s WARNING / %s ERROR",
         counts[CheckSeverity.PASS],
         counts[CheckSeverity.INFO],
         counts[CheckSeverity.WARNING],
         counts[CheckSeverity.ERROR],
     )
     for result in report.results:
-        log.info("    [%-7s]  %-20s  %s", result.severity, result.name, result.summary)
+        log.info("    [%-7s]  %-24s  %s", result.severity, result.name, result.summary)
+
+
+def _render_recommendations(report: ValidationReport, log: logging.Logger) -> None:
+    recommendations = report.recommendations or []
+    if not recommendations:
+        return
+    log.info(H2_LINE)
+    log.info("  Recommendations")
+    for item in recommendations[:10]:
+        log.info(
+            "    [%-7s] %-24s %s",
+            item.get("severity", ""),
+            item.get("check", ""),
+            item.get("suggestion", ""),
+        )
 
 
 def _render_failure_details(report: ValidationReport, log: logging.Logger) -> None:
     log.info(H2_LINE)
-    log.info("  失败详情")
+    log.info("  Failed / Warning Details")
     for result in report.failed_results:
-        _render_one_check_details(result, log)
+        log.info("")
+        log.info("    >> %s [%s]", result.name, result.severity)
+        _render_details_preview(result.details, log)
 
 
-def _render_one_check_details(result, log: logging.Logger) -> None:
-    log.info("")
-    log.info("    >> %s  [%s]", result.name, result.severity)
-    details = result.details
-
-    if result.name == "yaml_schema":
-        for problem in details.get("problems", []):
-            log.info("        - %s", problem)
-        if "reason" in details:
-            log.info("        reason: %s", details["reason"])
-
-    elif result.name == "pair_existence":
-        _render_path_preview(log, "缺失标签", details.get("missing_labels_preview", []))
-        _render_path_preview(log, "孤儿标签", details.get("orphan_labels_preview", []))
-        missing = details.get("missing_per_split", {})
-        if missing:
-            parts = ", ".join(f"{split}={count}" for split, count in missing.items())
-            log.info("        各 split 缺失: %s", parts)
-
-    elif result.name == "label_format":
-        if "error_kinds" in details:
-            parts = ", ".join(f"{kind}={count}" for kind, count in details["error_kinds"].items())
-            log.info("        错误类型: %s", parts)
-        problems = details.get("problems_preview") or details.get("errors_preview") or []
-        for item in problems[:5]:
-            path = item.get("path") or item.get("label") or ""
-            line = item.get("line") or item.get("line_no") or "?"
-            reason = item.get("reason") or item.get("kind") or "unknown"
-            raw = item.get("raw") or item.get("detail") or ""
-            log.info("        - %s:%s  %s  %s", Path(str(path)).name, line, reason, raw)
-
-    elif result.name == "split_uniqueness":
-        overlaps = details.get("overlaps", [])
-        if overlaps:
-            for overlap in overlaps:
-                log.info(
-                    "        %s -> %s: %s 张重复",
-                    overlap.get("split_a"),
-                    overlap.get("split_b"),
-                    overlap.get("count"),
-                )
-                for stem in overlap.get("preview", [])[:5]:
-                    log.info("          %s", stem)
-        else:
-            preview = details.get("duplicate_stems_preview", {})
-            for stem, splits in list(preview.items())[:5]:
-                log.info("        %s: %s", stem, ", ".join(splits))
-
-    elif result.name == "bbox_within_image":
-        for item in details.get("outside_preview", [])[:5]:
-            log.info(
-                "        - %s:%s  cls=%s  xywh=(%.6f, %.6f, %.6f, %.6f)",
-                Path(str(item["path"])).name,
-                item["line"],
-                item["class_id"],
-                item["x_center"],
-                item["y_center"],
-                item["width"],
-                item["height"],
-            )
-
-    elif result.name == "annotation_coverage":
-        log.info(
-            "        annotated=%s / total=%s, coverage=%.2f%%",
-            details.get("annotated_images"),
-            details.get("total_images"),
-            float(details.get("coverage", 0.0)) * 100,
-        )
-
-    elif result.name == "class_presence":
-        for problem in details.get("errors", [])[:5]:
-            log.info("        - %s", problem)
-        for warning in details.get("warnings", [])[:5]:
-            log.info("        - %s", warning)
-
-    elif "reason" in details:
+def _render_details_preview(details: dict[str, Any], log: logging.Logger) -> None:
+    for key in (
+        "problems",
+        "problems_preview",
+        "missing_labels_preview",
+        "orphan_labels_preview",
+        "outside_preview",
+        "duplicates_preview",
+        "tiny_preview",
+        "huge_preview",
+        "errors",
+        "warnings",
+    ):
+        values = details.get(key)
+        if not values:
+            continue
+        log.info("        %s:", key)
+        if isinstance(values, dict):
+            values = list(values.items())
+        for item in list(values)[:5]:
+            log.info("          - %s", _short_item(item))
+    if "reason" in details:
         log.info("        reason: %s", details["reason"])
 
 
-def _render_path_preview(log: logging.Logger, title: str, paths: list) -> None:
-    if not paths:
-        return
-    log.info("        %s示例 (前 %s 条):", title, min(5, len(paths)))
-    for path in paths[:5]:
-        log.info("          %s", path)
+def _short_item(item: Any) -> str:
+    if isinstance(item, dict):
+        path = item.get("path") or item.get("file") or ""
+        line = item.get("line") or item.get("duplicate_line") or ""
+        reason = item.get("reason") or item.get("issue") or item.get("error") or ""
+        if path or line or reason:
+            return f"{Path(str(path)).name}:{line} {reason}".strip()
+    return str(item)
 
 
 def _render_footer(report: ValidationReport, log: logging.Logger) -> None:
     log.info(H2_LINE)
-    log.info("  详细报告:      %s", report.report_path)
-    log.info("  数据字典:      %s", report.data_dictionary_path)
-    log.info("  Markdown报告:  %s", report.markdown_path)
+    log.info("  JSON report:      %s", report.report_path)
+    log.info("  Data dictionary:  %s", report.data_dictionary_path)
+    log.info("  Markdown report:  %s", report.markdown_path)
+    log.info("  HTML report:      %s", report.html_path)
+    log.info("  Repair CSV:       %s", report.repair_csv_path)
+    log.info("  Repair Excel:     %s", report.repair_excel_path)
+    log.info("  Audit JSON:       %s", report.audit_path)
+    log.info("  Recommendations:  %s", report.recommendations_path)
+    log.info("  Charts:           %s", report.charts_dir)
     log.info(H1_LINE)
 
 
@@ -192,13 +169,24 @@ def render_markdown(report: ValidationReport) -> str:
     """Render a compact Markdown report."""
 
     lines = [
-        f"# ODPlatform Data Validation Report",
+        "# ODPlatform Data Validation Report",
         "",
         f"- Run ID: `{report.run_id}`",
         f"- YAML: `{report.yaml_path}`",
         f"- Overall: **{report.overall_severity}**",
         f"- Exit code: `{report.exit_code}`",
         f"- Operator: `{report.operator or 'N/A'}`",
+        f"- Operator role: `{report.operator_role or 'N/A'}`",
+        f"- Device tag: `{report.device_tag or 'N/A'}`",
+        f"- Operation: `{report.operation}`",
+        f"- Notes: `{report.notes or 'N/A'}`",
+        "",
+        "## Audit",
+        "",
+        f"- Login user: `{(report.audit or {}).get('user', {}).get('login', 'N/A')}`",
+        f"- Hostname: `{(report.audit or {}).get('device', {}).get('hostname', 'N/A')}`",
+        f"- Python: `{(report.audit or {}).get('process', {}).get('python_executable', 'N/A')}`",
+        f"- CWD: `{(report.audit or {}).get('process', {}).get('cwd', 'N/A')}`",
         "",
         "## Data Dictionary",
         "",
@@ -235,6 +223,29 @@ def render_markdown(report: ValidationReport) -> str:
     )
     for result in report.results:
         lines.append(f"| `{result.name}` | {result.severity} | {result.summary} |")
+
+    lines.extend(["", "## Recommendations", ""])
+    for item in report.recommendations or []:
+        lines.append(
+            f"- **{item.get('check')}** [{item.get('severity')}]: "
+            f"{item.get('suggestion')}"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Artifacts",
+            "",
+            f"- JSON report: `{report.report_path}`",
+            f"- HTML report: `{report.html_path}`",
+            f"- Data dictionary: `{report.data_dictionary_path}`",
+            f"- Repair CSV: `{report.repair_csv_path}`",
+            f"- Repair Excel: `{report.repair_excel_path}`",
+            f"- Audit JSON: `{report.audit_path}`",
+            f"- Recommendations JSON: `{report.recommendations_path}`",
+            f"- Charts directory: `{report.charts_dir}`",
+        ]
+    )
 
     blocking = [
         result

@@ -13,6 +13,12 @@ from pathlib import Path
 from typing import List
 
 from od_platform.common.paths import validation_run_dir
+from od_platform.data_validation.artifacts import (
+    artifact_manifest,
+    build_recommendations,
+    write_extra_artifacts,
+)
+from od_platform.data_validation.audit import build_audit_context
 from od_platform.data_validation.data_dictionary import write_data_dictionary
 from od_platform.data_validation.registry import (
     CheckContext,
@@ -53,6 +59,12 @@ def validate_dataset(yaml_path: Path, options: ValidationOptions | None = None) 
     ctx = CheckContext(yaml_path=Path(yaml_path).resolve(), snapshot=snapshot, options=options)
     results = run_all_checks(ctx)
     duration_seconds = time.perf_counter() - started
+    audit = build_audit_context(
+        yaml_path=Path(yaml_path).resolve(),
+        run_id=run_id,
+        started_at_iso=started_at_iso,
+        options=options,
+    )
     report = ValidationReport(
         run_id=run_id,
         yaml_path=Path(yaml_path).resolve(),
@@ -60,13 +72,21 @@ def validate_dataset(yaml_path: Path, options: ValidationOptions | None = None) 
         results=results,
         run_dir=run_dir,
         operator=options.operator,
+        operator_role=options.operator_role,
+        device_tag=options.device_tag,
+        operation=options.operation,
+        notes=options.notes,
+        audit=audit,
         duration_seconds=duration_seconds,
         started_at_iso=started_at_iso,
     )
+    object.__setattr__(report, "recommendations", build_recommendations(report))
+    object.__setattr__(report, "artifacts", artifact_manifest(report))
 
     write_data_dictionary(snapshot, report.data_dictionary_path)
     report.write_json()
     report.markdown_path.write_text(render_markdown(report), encoding="utf-8")
+    write_extra_artifacts(report)
     render_to_logger(report, logger)
     return report
 
