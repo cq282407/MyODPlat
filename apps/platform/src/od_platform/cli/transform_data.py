@@ -10,7 +10,7 @@ import argparse
 import logging
 import sys
 
-from od_platform.common.constants import AnnotationFormat, SplitStrategy, Task
+from od_platform.common.constants import AnnotationFormat, MaterializeMode, SplitStrategy, Task
 from od_platform.common.logging_utils import get_logger
 from od_platform.common.paths import LOGGING_DIR
 from od_platform.data_pipeline.convert.registry import list_capabilities
@@ -51,6 +51,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--output-name", default=None, help="Output folder under data/processed")
     parser.add_argument(
+        "--materialize-mode",
+        default=MaterializeMode.HARDLINK,
+        choices=MaterializeMode.all(),
+        help="How to materialize split outputs: hardlink/copy real files, or txt lists plus files.",
+    )
+    parser.add_argument(
         "--include-unlabeled",
         action="store_true",
         help="Include images without labels as background samples.",
@@ -89,6 +95,7 @@ def main(argv: list[str] | None = None) -> int:
         val_rate=args.val_rate,
         test_rate=args.test_rate,
         include_unlabeled=args.include_unlabeled,
+        materialize_mode=args.materialize_mode,
     )
 
     try:

@@ -63,3 +63,15 @@ class SplitStrategy:
     @classmethod
     def all(cls) -> Tuple[str, ...]:
         return cls.NONE, cls.RANDOM, cls.STRATIFIED
+
+
+class MaterializeMode:
+    """Dataset materialization modes for split outputs."""
+
+    HARDLINK = "hardlink"
+    COPY = "copy"
+    TXT = "txt"
+
+    @classmethod
+    def all(cls) -> Tuple[str, ...]:
+        return cls.HARDLINK, cls.COPY, cls.TXT

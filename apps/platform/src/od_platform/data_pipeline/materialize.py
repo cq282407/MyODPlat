@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import csv
+import hashlib
 import json
 import os
 import shutil
@@ -13,7 +15,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterable
 
-from od_platform.common.constants import DATASET_SPLITS, IMAGE_EXTENSIONS
+from od_platform.common.constants import DATASET_SPLITS, IMAGE_EXTENSIONS, MaterializeMode
 from od_platform.data_pipeline.split.registry import DatasetItem, SplitResult
 
 
@@ -56,40 +58,57 @@ def materialize_yolo_dataset(
     train_rate: float,
     val_rate: float,
     test_rate: float,
+    materialize_mode: str = MaterializeMode.HARDLINK,
 ) -> dict:
-    """Copy/hardlink split items into YOLO train/val/test folders."""
+    """Materialize split items into YOLO folders or txt file lists."""
+
+    if materialize_mode not in MaterializeMode.all():
+        raise ValueError(f"Unsupported materialize mode: {materialize_mode}")
 
     _clear_root_label_files(output_dir / "labels")
     for split in DATASET_SPLITS:
+        _clear_txt_list(output_dir / f"{split}.txt")
         _clear_split_dir(output_dir / "images" / split)
         _clear_split_dir(output_dir / "labels" / split)
 
     split_counts: dict[str, int] = {}
     object_counts: dict[str, int] = {}
     class_counts: dict[str, dict[str, int]] = {}
+    fingerprint_rows: list[dict[str, str | int]] = []
 
     for split in DATASET_SPLITS:
         items = split_result.get(split, [])
         split_counts[split] = len(items)
         counter: Counter[int] = Counter()
         object_total = 0
+        txt_lines: list[str] = []
         for item in items:
-            _copy_or_link(item.image_path, output_dir / "images" / split / item.image_path.name)
-            _copy_or_link(item.label_path, output_dir / "labels" / split / item.label_path.name)
+            image_path = output_dir / "images" / split / item.image_path.name
+            label_path = output_dir / "labels" / split / item.label_path.name
+            _materialize_file(item.image_path, image_path, materialize_mode)
+            _materialize_file(item.label_path, label_path, materialize_mode)
+            if materialize_mode == MaterializeMode.TXT:
+                txt_lines.append(image_path.resolve().as_posix())
+
             label_counter = _count_label_classes(item.label_path)
             counter.update(label_counter)
             object_total += sum(label_counter.values())
+            fingerprint_rows.append(_build_fingerprint_row(split, image_path, label_path))
+
+        if materialize_mode == MaterializeMode.TXT:
+            _write_txt_list(output_dir / f"{split}.txt", txt_lines)
         object_counts[split] = object_total
         class_counts[split] = {
             class_names[class_id]: counter.get(class_id, 0)
             for class_id in range(len(class_names))
         }
 
-    _write_dataset_yaml(output_dir, config_yaml_path, class_names)
+    _write_dataset_yaml(output_dir, config_yaml_path, class_names, materialize_mode)
     _write_split_report(
         output_dir=output_dir,
         dataset_name=dataset_name,
         split_strategy=split_strategy,
+        materialize_mode=materialize_mode,
         random_state=random_state,
         train_rate=train_rate,
         val_rate=val_rate,
@@ -98,6 +117,15 @@ def materialize_yolo_dataset(
         object_counts=object_counts,
         class_counts=class_counts,
     )
+    fingerprint = _write_fingerprint_files(
+        output_dir=output_dir,
+        dataset_name=dataset_name,
+        split_strategy=split_strategy,
+        materialize_mode=materialize_mode,
+        random_state=random_state,
+        split_counts=split_counts,
+        rows=fingerprint_rows,
+    )
 
     return {
         "split_counts": split_counts,
@@ -105,6 +133,8 @@ def materialize_yolo_dataset(
         "class_counts": class_counts,
         "dataset_yaml": str(output_dir / "dataset.yaml"),
         "config_yaml": str(config_yaml_path),
+        "materialize_mode": materialize_mode,
+        **fingerprint,
     }
 
 
@@ -134,7 +164,26 @@ def _clear_root_label_files(labels_dir: Path) -> None:
             child.unlink()
 
 
-def _copy_or_link(src: Path, dst: Path) -> None:
+def _clear_txt_list(path: Path) -> None:
+    if path.exists():
+        path.unlink()
+
+
+def _materialize_file(src: Path, dst: Path, materialize_mode: str) -> None:
+    if materialize_mode == MaterializeMode.COPY:
+        _copy_file(src, dst)
+    else:
+        _link_or_copy(src, dst)
+
+
+def _copy_file(src: Path, dst: Path) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        dst.unlink()
+    shutil.copy2(src, dst)
+
+
+def _link_or_copy(src: Path, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     if dst.exists():
         dst.unlink()
@@ -156,13 +205,21 @@ def _count_label_classes(label_path: Path) -> Counter[int]:
     return counter
 
 
-def _write_dataset_yaml(output_dir: Path, config_yaml_path: Path, class_names: list[str]) -> None:
+def _write_dataset_yaml(
+    output_dir: Path,
+    config_yaml_path: Path,
+    class_names: list[str],
+    materialize_mode: str,
+) -> None:
     names_yaml = "\n".join(f"  {idx}: {name}" for idx, name in enumerate(class_names))
+    train_path = "train.txt" if materialize_mode == MaterializeMode.TXT else "images/train"
+    val_path = "val.txt" if materialize_mode == MaterializeMode.TXT else "images/val"
+    test_path = "test.txt" if materialize_mode == MaterializeMode.TXT else "images/test"
     content = (
         f"path: {output_dir.as_posix()}\n"
-        "train: images/train\n"
-        "val: images/val\n"
-        "test: images/test\n"
+        f"train: {train_path}\n"
+        f"val: {val_path}\n"
+        f"test: {test_path}\n"
         f"nc: {len(class_names)}\n"
         "names:\n"
         f"{names_yaml}\n"
@@ -176,6 +233,7 @@ def _write_split_report(
     output_dir: Path,
     dataset_name: str,
     split_strategy: str,
+    materialize_mode: str,
     random_state: int,
     train_rate: float,
     val_rate: float,
@@ -187,6 +245,7 @@ def _write_split_report(
     report = {
         "dataset": dataset_name,
         "split_strategy": split_strategy,
+        "materialize_mode": materialize_mode,
         "random_state": random_state,
         "rates": {"train": train_rate, "val": val_rate, "test": test_rate},
         "image_counts": split_counts,
@@ -197,3 +256,95 @@ def _write_split_report(
         json.dumps(report, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+
+def _write_txt_list(path: Path, lines: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+
+
+def _build_fingerprint_row(split: str, image_path: Path, label_path: Path) -> dict[str, str | int]:
+    image_size = _file_size(image_path)
+    label_size = _file_size(label_path)
+    image_sha256 = _file_sha256(image_path)
+    label_sha256 = _file_sha256(label_path)
+    combined_sha256 = hashlib.sha256(f"{image_sha256}:{label_sha256}".encode("utf-8")).hexdigest()
+    return {
+        "split": split,
+        "image": image_path.as_posix(),
+        "label": label_path.as_posix(),
+        "size_bytes": image_size + label_size,
+        "image_size_bytes": image_size,
+        "label_size_bytes": label_size,
+        "sha256": combined_sha256,
+        "image_sha256": image_sha256,
+        "label_sha256": label_sha256,
+    }
+
+
+def _write_fingerprint_files(
+    output_dir: Path,
+    dataset_name: str,
+    split_strategy: str,
+    materialize_mode: str,
+    random_state: int,
+    split_counts: dict[str, int],
+    rows: list[dict[str, str | int]],
+) -> dict[str, str]:
+    csv_path = output_dir / "dataset_fingerprint.csv"
+    json_path = output_dir / "dataset_fingerprint.json"
+    fieldnames = [
+        "split",
+        "image",
+        "label",
+        "size_bytes",
+        "image_size_bytes",
+        "label_size_bytes",
+        "sha256",
+        "image_sha256",
+        "label_sha256",
+    ]
+    with csv_path.open("w", encoding="utf-8", newline="") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    dataset_fingerprint = _dataset_fingerprint(rows)
+    payload = {
+        "schema_version": 1,
+        "dataset": dataset_name,
+        "split_strategy": split_strategy,
+        "materialize_mode": materialize_mode,
+        "random_state": random_state,
+        "image_counts": split_counts,
+        "item_count": len(rows),
+        "fingerprint": dataset_fingerprint,
+        "csv": csv_path.name,
+        "items": rows,
+    }
+    json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "fingerprint": dataset_fingerprint,
+        "fingerprint_csv": str(csv_path),
+        "fingerprint_json": str(json_path),
+    }
+
+
+def _dataset_fingerprint(rows: list[dict[str, str | int]]) -> str:
+    digest = hashlib.sha256()
+    for row in sorted(rows, key=lambda item: (str(item["split"]), str(item["image"]))):
+        digest.update(json.dumps(row, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def _file_size(path: Path) -> int:
+    return path.stat().st_size
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

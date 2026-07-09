@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from od_platform.common.constants import AnnotationFormat, SplitStrategy, Task
+from od_platform.common.constants import AnnotationFormat, MaterializeMode, SplitStrategy, Task
 from od_platform.common.paths import DATASET_CONFIGS_DIR, PROCESSED_DATA_DIR, RAW_DATA_DIR
 from od_platform.data_pipeline.convert.registry import ConvertOptions, get_converter
 from od_platform.data_pipeline.convert.service import convert_data_to_yolo
@@ -39,6 +39,7 @@ class DatasetPipeline:
         val_rate: float = 0.1,
         test_rate: float = 0.1,
         include_unlabeled: bool = False,
+        materialize_mode: str = MaterializeMode.HARDLINK,
     ) -> None:
         self.dataset = dataset
         self.annotation_format = AnnotationFormat.normalize(annotation_format)
@@ -51,18 +52,21 @@ class DatasetPipeline:
         self.val_rate = val_rate
         self.test_rate = test_rate
         self.include_unlabeled = include_unlabeled
+        self.materialize_mode = materialize_mode
 
     def run(self) -> dict:
         if self.task != Task.DETECT:
             raise ValueError(f"Current pipeline only supports task: {Task.DETECT}")
         if self.split_strategy not in SplitStrategy.all():
             raise ValueError(f"Unsupported split strategy: {self.split_strategy}")
+        if self.materialize_mode not in MaterializeMode.all():
+            raise ValueError(f"Unsupported materialize mode: {self.materialize_mode}")
         if not get_converter(self.annotation_format).supports(self.task):
             raise ValueError(f"Unsupported annotation format/task: {self.annotation_format}/{self.task}")
 
         raw_dir = RAW_DATA_DIR / self.dataset
         input_dir = _resolve_annotation_input(raw_dir, self.annotation_format)
-        output_dir = PROCESSED_DATA_DIR / self.output_name
+        output_dir = _resolve_unique_output_dir(PROCESSED_DATA_DIR, self.output_name)
         output_labels_dir = output_dir / (
             "_converted_labels"
             if self.split_strategy != SplitStrategy.NONE
@@ -178,7 +182,7 @@ class DatasetPipeline:
         materialized = materialize_yolo_dataset(
             split_result=split_result,
             output_dir=output_dir,
-            config_yaml_path=DATASET_CONFIGS_DIR / f"{self.dataset}.yaml",
+            config_yaml_path=_resolve_config_yaml_path(self.dataset, output_dir),
             class_names=classes,
             dataset_name=self.dataset,
             split_strategy=self.split_strategy,
@@ -186,6 +190,7 @@ class DatasetPipeline:
             train_rate=self.train_rate,
             val_rate=self.val_rate,
             test_rate=self.test_rate,
+            materialize_mode=self.materialize_mode,
         )
         return {
             "paired_images": len(items),
@@ -205,3 +210,41 @@ def _resolve_images_dir(raw_dir: Path, output_dir: Path) -> Path:
     if staged_images.exists():
         return staged_images
     return raw_dir / "images"
+
+
+def _resolve_unique_output_dir(base_dir: Path, output_name: str) -> Path:
+    output_dir = base_dir / output_name
+    if not output_dir.exists():
+        return output_dir
+
+    counter = 2
+    while True:
+        candidate = base_dir / f"{output_name}_{counter}"
+        if not candidate.exists():
+            logger.warning(
+                "Output directory already exists: %s; using %s instead.",
+                output_dir,
+                candidate,
+            )
+            return candidate
+        counter += 1
+
+
+def _resolve_config_yaml_path(dataset: str, output_dir: Path) -> Path:
+    preferred = DATASET_CONFIGS_DIR / f"{dataset}.yaml"
+    if not preferred.exists():
+        return preferred
+    return _resolve_unique_yaml_path(DATASET_CONFIGS_DIR, output_dir.name)
+
+
+def _resolve_unique_yaml_path(base_dir: Path, stem: str) -> Path:
+    candidate = base_dir / f"{stem}.yaml"
+    if not candidate.exists():
+        return candidate
+
+    counter = 2
+    while True:
+        next_candidate = base_dir / f"{stem}_{counter}.yaml"
+        if not next_candidate.exists():
+            return next_candidate
+        counter += 1
