@@ -13,12 +13,40 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 @dataclass
 class Detection:
-    """One detection box ready for drawing."""
+    """One detection box ready for drawing (目标检测)."""
 
     box: Tuple[int, int, int, int]
     confidence: float
     label: str
     color: Tuple[int, int, int] = (0, 255, 0)
+
+
+@dataclass
+class SegmentationDet:
+    """One instance segmentation result ready for drawing (实例分割).
+
+    mask 为 None 时退化为普通 Detection 框.
+    """
+
+    box: Tuple[int, int, int, int]
+    confidence: float
+    label: str
+    color: Tuple[int, int, int] = (0, 255, 0)
+    mask: Optional[None] = None  # np.ndarray, shape (H, W), dtype bool
+
+
+@dataclass
+class KeypointDet:
+    """One keypoint detection result ready for drawing (关键点/姿态估计).
+
+    keypoints 为 None 时退化为普通 Detection 框.
+    """
+
+    box: Tuple[int, int, int, int]
+    confidence: float
+    label: str
+    color: Tuple[int, int, int] = (0, 255, 0)
+    keypoints: Optional[None] = None  # np.ndarray, shape (N, 3) — x, y, visible
 
 
 class LabelPosition(Enum):
