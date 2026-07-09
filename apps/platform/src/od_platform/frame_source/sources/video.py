@@ -11,11 +11,23 @@ from typing import Optional
 import cv2
 
 from od_platform.frame_source.core.base import FrameSource
-from od_platform.frame_source.core.types import Frame, FrameInfo, SourceType
+from od_platform.frame_source.core.types import Frame, FrameInfo, SourceType, VIDEO_EXTENSIONS
+from od_platform.frame_source.registry import register_source
 
 logger = logging.getLogger(__name__)
 
+NETWORK_PREFIXES = ("rtsp://", "rtmp://", "http://", "https://")
 
+def _is_video_source(source_text: str) -> bool:
+    lowered = source_text.lower()
+    if lowered.startswith(NETWORK_PREFIXES):
+        return True
+    from pathlib import Path
+    p = Path(source_text)
+    return p.suffix.lower() in VIDEO_EXTENSIONS
+
+
+@register_source(_is_video_source, priority=50)
 class VideoSource(FrameSource):
     """FrameSource for video files and OpenCV-readable network streams."""
 
