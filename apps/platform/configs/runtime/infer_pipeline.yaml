@@ -1,0 +1,146 @@
+# infer_pipeline.yaml — ODPlatform D8 推理子系统的"帧源 + 美化"配置
+# 这份配置管 D5 的 infer.yaml 管不到的那一半. 互不重叠, 各管各的.
+
+# ============================================================================
+# 帧源 (frame_source) — 主要给摄像头/RTSP 用; 视频文件 / 图片夹 走默认即可
+# ============================================================================
+frame_source:
+  camera:
+    # 这一块只有 source 是摄像头号 (0/1/2...) 时才生效, 视频文件源会被忽略
+    width: 1280
+    height: 720
+    fps: 30
+    backend: msmf         # 可选, 默认 AUTO; 也可以 DSHOW(Win) / V4L2(Linux) / AVFOUNDATION(Mac)
+    # auto_focus: true
+    # buffer_size: 1        # 摄像头驱动内部缓冲, 越小延迟越低
+
+# ============================================================================
+# 美化 (visualization) — 关掉就走 YOLO 原生 result.plot()
+# ============================================================================
+visualization:
+  enabled: true                 # false → 退回 YOLO 原生绘制 (更快但丑)
+  use_label_mapping: true       # false → 全显英文 (即使 label_mapping 非空)
+
+  # 英文 → 中文 (没写的类别保持英文)
+  # NWPU VHR-10 遥感数据集 (10 类)
+  label_mapping:
+    airplane: 飞机
+    ship: 船
+    storage_tank: 储罐
+    baseball_diamond: 棒球场
+    tennis_court: 网球场
+    basketball_court: 篮球场
+    ground_track_field: 田径场
+    harbor: 港口
+    bridge: 桥梁
+    vehicle: 车辆
+    # COCO 常用类别 (预训练模型 yolo11n/s 的 80 类)
+    person: 人员
+    bicycle: 自行车
+    car: 汽车
+    motorcycle: 摩托车
+    bus: 公交车
+    train: 火车
+    truck: 卡车
+    boat: 小船
+    traffic_light: 红绿灯
+    fire_hydrant: 消防栓
+    stop_sign: 停车标志
+    parking_meter: 停车计时器
+    bench: 长凳
+    bird: 鸟
+    cat: 猫
+    dog: 狗
+    horse: 马
+    sheep: 羊
+    cow: 牛
+    elephant: 大象
+    bear: 熊
+    zebra: 斑马
+    giraffe: 长颈鹿
+    backpack: 背包
+    umbrella: 雨伞
+    handbag: 手提包
+    tie: 领带
+    suitcase: 手提箱
+    frisbee: 飞盘
+    skis: 滑雪板
+    snowboard: 滑雪板
+    sports_ball: 运动球
+    kite: 风筝
+    baseball_bat: 棒球棒
+    baseball_glove: 棒球手套
+    skateboard: 滑板
+    surfboard: 冲浪板
+    tennis_racket: 网球拍
+    bottle: 瓶子
+    wine_glass: 酒杯
+    cup: 杯子
+    fork: 叉子
+    knife: 刀
+    spoon: 勺子
+    bowl: 碗
+    banana: 香蕉
+    apple: 苹果
+    sandwich: 三明治
+    orange: 橘子
+    broccoli: 西兰花
+    carrot: 胡萝卜
+    hot_dog: 热狗
+    pizza: 披萨
+    donut: 甜甜圈
+    cake: 蛋糕
+    chair: 椅子
+    couch: 沙发
+    potted_plant: 盆栽
+    bed: 床
+    dining_table: 餐桌
+    toilet: 马桶
+    tv: 电视
+    laptop: 笔记本电脑
+    mouse: 鼠标
+    remote: 遥控器
+    keyboard: 键盘
+    cell_phone: 手机
+    microwave: 微波炉
+    oven: 烤箱
+    toaster: 烤面包机
+    sink: 水槽
+    refrigerator: 冰箱
+    book: 书
+    clock: 时钟
+    vase: 花瓶
+    scissors: 剪刀
+    teddy_bear: 泰迪熊
+    hair_drier: 吹风机
+    toothbrush: 牙刷
+
+  # 类别 → 颜色 (BGR), 没写的用 default_color
+  color_mapping:
+    airplane:            [0, 255, 255]      # 黄
+    ship:                [255, 0, 0]        # 蓝
+    storage_tank:        [0, 255, 0]        # 绿
+    baseball_diamond:    [255, 0, 255]      # 粉
+    tennis_court:        [0, 128, 255]      # 橙
+    basketball_court:    [0, 0, 255]        # 红
+    ground_track_field:  [128, 128, 0]      # 青
+    harbor:              [128, 0, 128]      # 紫
+    bridge:              [255, 255, 0]      # 浅蓝
+    vehicle:             [0, 128, 128]      # 棕
+    person:              [0, 255, 0]        # 绿
+    car:                 [0, 0, 255]        # 红
+    dog:                 [255, 100, 200]    # 粉
+    cat:                 [255, 128, 0]      # 橙
+
+
+  default_color: [0, 255, 0]    # 没在 color_mapping 里的类别用这个
+
+  # 中文字体路径 — 霞鹜文楷 Bold（开源，字形优雅，适合画面叠加）
+  font_path: apps/platform/configs/runtime/LXGWWenKai-Bold.ttf
+
+  # 样式覆盖 — 透传给 DrawStyle.from_image_size, 全部可省
+  style:
+    # box_thickness: 2            # 框线粗细 (默认自适应)
+    # text_scale: 0.6             # 标签字号
+    # text_color: [255, 255, 255] # 标签字色
+    # text_bg_alpha: 0.6          # 标签背景不透明度 (0-1)
