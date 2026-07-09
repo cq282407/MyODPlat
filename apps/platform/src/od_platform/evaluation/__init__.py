@@ -1,0 +1,8 @@
+#!/usr/bin/env python
+# -*- coding:utf-8 -*-
+# @FileName  : __init__.py
+# @Project   : ODPlatform
+# @Function  : evaluation public API.
+from od_platform.evaluation.service import ValMetrics, ValResult, ValService, evaluate_yolo
+
+__all__ = ["ValService", "ValResult", "ValMetrics", "evaluate_yolo"]

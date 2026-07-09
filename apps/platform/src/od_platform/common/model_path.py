@@ -27,7 +27,8 @@ def resolve_model_path(model: str | Path | None, *, search_dirs: Sequence[Path] 
     if model_path.is_absolute() or len(model_path.parts) > 1:
         return model_path.resolve()
 
-    dirs = list(search_dirs) if search_dirs is not None else [PRETRAINED_MODELS_DIR]
+    explicit_search_dirs = search_dirs is not None
+    dirs = list(search_dirs) if explicit_search_dirs else [PRETRAINED_MODELS_DIR]
     for directory in dirs:
         candidate = directory / model_path.name
         if candidate.exists():
@@ -40,4 +41,6 @@ def resolve_model_path(model: str | Path | None, *, search_dirs: Sequence[Path] 
         model_path.name,
         [str(directory) for directory in dirs],
     )
+    if explicit_search_dirs:
+        return Path(resolved.name)
     return Path(resolved.name) if not resolved.exists() else resolved

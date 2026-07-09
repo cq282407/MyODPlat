@@ -276,7 +276,13 @@ def _resolve_data_root(yaml_path: Path, yaml_data: Dict[str, Any]) -> Path:
     root = Path(str(raw_root))
     if root.is_absolute():
         return root
-    return (yaml_path.parent / root).resolve()
+    yaml_relative = (yaml_path.parent / root).resolve()
+    if yaml_relative.exists():
+        return yaml_relative
+    cwd_relative = root.resolve()
+    if cwd_relative.exists():
+        return cwd_relative
+    return yaml_relative
 
 
 def _resolve_split_paths(data_root: Path, yaml_data: Dict[str, Any]) -> Dict[str, Path]:
