@@ -10,19 +10,28 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import json
 import os
 import shutil
 import stat
 import subprocess
 import sys
+import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from od_platform.common.logging_utils import get_logger
 from od_platform.common.paths import (
+    APP_DIR,
+    CONFIGS_DIR,
+    DOCS_DIR,
+    META_BACKUPS_DIR,
     META_LOGGING_DIR,
     PRETRAINED_MODELS_DIR,
     RAW_DATA_DIR,
     ROOT_DIR,
+    SCRIPTS_DIR,
+    UNIT_TEST_DIR,
     get_dirs_to_reset,
     is_protected,
 )
@@ -37,6 +46,26 @@ logger = get_logger(
 
 CONFIRM_KEYWORD = "RESET"
 LINE_WIDTH = 70
+BACKUP_MANIFEST_NAME = "manifest.json"
+CORE_BACKUP_SOURCES: tuple[Path, ...] = (
+    APP_DIR / "src",
+    UNIT_TEST_DIR,
+    CONFIGS_DIR,
+    SCRIPTS_DIR,
+    DOCS_DIR,
+    ROOT_DIR / "README.md",
+    ROOT_DIR / "TEAM_HANDOFF.md",
+    ROOT_DIR / "pyproject.toml",
+    ROOT_DIR / ".odp-workspace",
+    APP_DIR / "README.md",
+    APP_DIR / "pyproject.toml",
+)
+BACKUP_EXCLUDED_NAMES = {
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+}
 
 
 def _format_size(bytes_size: int) -> str:
@@ -78,6 +107,117 @@ def _audit_context() -> dict:
         "argv": sys.argv,
         "cwd": os.getcwd(),
     }
+
+
+def _backup_archive_name(path: Path) -> str:
+    """Return a stable zip archive name relative to the workspace root."""
+    try:
+        rel_path = path.resolve(strict=False).relative_to(ROOT_DIR.resolve(strict=False))
+    except ValueError:
+        rel_path = Path(path.name)
+    return rel_path.as_posix()
+
+
+def _backup_file_archive_name(path: Path, source: Path) -> str:
+    """Return the archive name for one file, preserving source-local structure."""
+    try:
+        return path.resolve(strict=False).relative_to(ROOT_DIR.resolve(strict=False)).as_posix()
+    except ValueError:
+        if source.is_dir():
+            return (Path(source.name) / path.relative_to(source)).as_posix()
+        return source.name
+
+
+def _should_skip_backup_path(path: Path) -> bool:
+    return any(part in BACKUP_EXCLUDED_NAMES for part in path.parts)
+
+
+def _collect_core_backup_files(
+    sources: tuple[Path, ...] = CORE_BACKUP_SOURCES,
+) -> tuple[list[tuple[Path, str, int]], list[Path]]:
+    """Collect core files for a lightweight reset backup."""
+    files: list[tuple[Path, str, int]] = []
+    missing: list[Path] = []
+    seen: set[Path] = set()
+
+    for source in sources:
+        if not source.exists():
+            missing.append(source)
+            continue
+
+        candidates = [source] if source.is_file() else source.rglob("*")
+        for path in candidates:
+            if not path.is_file() or _should_skip_backup_path(path):
+                continue
+
+            resolved = path.resolve(strict=False)
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+
+            try:
+                size = path.stat().st_size
+            except OSError:
+                size = 0
+            files.append((path, _backup_file_archive_name(path, source), size))
+
+    files.sort(key=lambda item: item[1])
+    return files, missing
+
+
+def _next_backup_path(output_dir: Path) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = output_dir / f"reset-core-{stamp}.zip"
+    counter = 2
+    while backup_path.exists():
+        backup_path = output_dir / f"reset-core-{stamp}-{counter}.zip"
+        counter += 1
+    return backup_path
+
+
+def create_core_backup(
+    output_dir: Path = META_BACKUPS_DIR,
+    sources: tuple[Path, ...] = CORE_BACKUP_SOURCES,
+    context: dict | None = None,
+) -> Path:
+    """Create a zip backup of project core files and return the zip path."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    backup_path = _next_backup_path(output_dir)
+    files, missing = _collect_core_backup_files(sources)
+    total_size = sum(size for _, _, size in files)
+
+    manifest = {
+        "schema_version": 1,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "workspace_root": str(ROOT_DIR),
+        "backup_path": str(backup_path),
+        "file_count": len(files),
+        "total_size_bytes": total_size,
+        "sources": [_backup_archive_name(source) for source in sources],
+        "missing_sources": [_backup_archive_name(source) for source in missing],
+        "context": context or {},
+        "files": [
+            {"path": archive_name, "size_bytes": size}
+            for _, archive_name, size in files
+        ],
+    }
+    manifest_text = json.dumps(manifest, ensure_ascii=False, indent=2)
+
+    with zipfile.ZipFile(backup_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path, archive_name, _ in files:
+            archive.write(path, archive_name)
+        archive.writestr(BACKUP_MANIFEST_NAME, manifest_text)
+
+    manifest_path = backup_path.with_suffix(".manifest.json")
+    manifest_path.write_text(manifest_text + "\n", encoding="utf-8")
+    logger.info(
+        "核心文件已备份: %s (%s, %s 个文件)",
+        backup_path,
+        _format_size(total_size),
+        len(files),
+    )
+    logger.info("备份清单: %s", manifest_path)
+    return backup_path
 
 
 def _scan_targets() -> tuple[list[tuple[Path, int, int]], list[Path]]:
@@ -231,7 +371,12 @@ def _execute_delete(deletable: list[tuple[Path, int, int]]) -> int:
     return 2
 
 
-def reset_project(yes: bool = False, force: bool = False, dry_run: bool = False) -> int:
+def reset_project(
+    yes: bool = False,
+    force: bool = False,
+    dry_run: bool = False,
+    backup_core: bool = False,
+) -> int:
     """重置项目运行时产物。默认 dry-run, 不会实际删除。"""
     logger.info("项目重置工具".center(LINE_WIDTH, "="))
     logger.info(f"项目根目录: {ROOT_DIR}")
@@ -247,6 +392,12 @@ def reset_project(yes: bool = False, force: bool = False, dry_run: bool = False)
 
     deletable, skipped = _scan_targets()
     _print_plan(deletable, skipped, will_actually_delete=yes)
+
+    if backup_core:
+        if yes:
+            logger.info("已启用核心文件备份: 删除前会生成 zip 备份")
+        else:
+            logger.info("已启用核心文件备份参数, 但当前是 dry-run, 不会实际写入备份包")
 
     if not deletable:
         return 0
@@ -264,6 +415,13 @@ def reset_project(yes: bool = False, force: bool = False, dry_run: bool = False)
         logger.warning("用户取消, 未执行删除")
         return 0
 
+    if backup_core:
+        try:
+            create_core_backup(context=ctx)
+        except OSError as exc:
+            logger.error("核心文件备份失败, 已中止 reset: %s", exc)
+            return 3
+
     logger.info("")
     logger.info("开始删除...".center(LINE_WIDTH, "="))
     return _execute_delete(deletable)
@@ -277,8 +435,18 @@ def main() -> int:
     parser.add_argument("--yes", action="store_true", help="真正执行删除(默认是 dry-run)")
     parser.add_argument("--force", action="store_true", help="跳过交互式确认(仅当 --yes 时有效)")
     parser.add_argument("--dry-run", action="store_true", help="显式声明 dry-run")
+    parser.add_argument(
+        "--backup-core",
+        action="store_true",
+        help="真正删除前将核心代码、配置、脚本和文档打包备份到 .odp-meta/backups",
+    )
     args = parser.parse_args()
-    return reset_project(yes=args.yes, force=args.force, dry_run=args.dry_run)
+    return reset_project(
+        yes=args.yes,
+        force=args.force,
+        dry_run=args.dry_run,
+        backup_core=args.backup_core,
+    )
 
 
 if __name__ == "__main__":

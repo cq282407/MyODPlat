@@ -80,6 +80,7 @@ CHECKPOINTS_DIR: Path = TRAINED_MODELS_DIR
 # 元工具数据目录 / 工具自身的一些日志
 META_DIR: Path = ROOT_DIR / ".odp-meta"
 META_LOGGING_DIR: Path = META_DIR / "logging"
+META_BACKUPS_DIR: Path = META_DIR / "backups"
 
 
 # 对外暴露的要初始化的目录列表
@@ -99,6 +100,7 @@ def get_dirs_to_initialize() -> List[Path]:
         DOCS_DIR,
         SCRIPTS_DIR,
         META_LOGGING_DIR,
+        META_BACKUPS_DIR,
     ]
 
 
@@ -151,6 +153,7 @@ PROTECTED_DIRS: tuple[Path, ...] = (
     APP_DIR / "src",
     META_DIR,
     META_LOGGING_DIR,
+    META_BACKUPS_DIR,
 )
 
 
@@ -173,6 +176,7 @@ def is_protected(path: Path) -> bool:
         APP_DIR / "src",
         META_DIR,
         META_LOGGING_DIR,
+        META_BACKUPS_DIR,
     )
     for protected in protected_subtrees:
         if resolved_path.is_relative_to(protected.resolve(strict=False)):

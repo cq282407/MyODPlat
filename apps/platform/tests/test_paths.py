@@ -6,7 +6,14 @@
 
 from pathlib import Path
 
-from od_platform.common.paths import APP_DIR, DATA_DIR, ROOT_DIR, get_dirs_to_initialize
+from od_platform.common.paths import (
+    APP_DIR,
+    DATA_DIR,
+    META_BACKUPS_DIR,
+    ROOT_DIR,
+    get_dirs_to_initialize,
+    is_protected,
+)
 
 
 def test_root_dir_has_workspace_marker() -> None:
@@ -23,3 +30,8 @@ def test_data_dir_is_shared_root_asset() -> None:
 
 def test_dirs_to_initialize_are_paths() -> None:
     assert all(isinstance(path, Path) for path in get_dirs_to_initialize())
+
+
+def test_meta_backups_dir_is_initialized_and_protected() -> None:
+    assert META_BACKUPS_DIR in get_dirs_to_initialize()
+    assert is_protected(META_BACKUPS_DIR)

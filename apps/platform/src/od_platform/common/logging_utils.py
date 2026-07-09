@@ -28,10 +28,15 @@ def _build_log_file(
     log_type: str,
     model_name: Optional[str],
     temp_log: bool,
+    run_id: Optional[str] = None,
 ) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:21]
-    prefix = "temp" if temp_log else log_type.replace("_", "-")
-    filename_parts = [prefix, timestamp]
+    safe_log_type = _safe_filename_part(log_type.replace("_", "-"))
+    prefix = f"temp-{safe_log_type}" if temp_log else safe_log_type
+    filename_parts = [prefix]
+    if run_id:
+        filename_parts.append(_safe_filename_part(run_id))
+    filename_parts.append(timestamp)
     if model_name:
         filename_parts.append(_safe_filename_part(model_name))
     return base_path / log_type / ("_".join(filename_parts) + ".log")
@@ -43,6 +48,7 @@ def get_logger(
     model_name: Optional[str] = None,
     log_level: int = logging.INFO,
     temp_log: bool = False,
+    run_id: Optional[str] = None,
     encoding: str = "utf-8",
     logger_name: str = ROOT_LOGGER_NAME,
 ) -> logging.Logger:
@@ -54,6 +60,7 @@ def get_logger(
         model_name: Optional model name appended to the log filename.
         log_level: Logging level for logger and handlers.
         temp_log: Whether to use `temp` as the filename prefix.
+        run_id: Optional stable id appended to the log filename.
         encoding: File encoding for the file handler.
         logger_name: Logger name to configure.
 
@@ -67,7 +74,7 @@ def get_logger(
     logger.setLevel(log_level)
     logger.propagate = False
 
-    log_file = _build_log_file(base_path, log_type, model_name, temp_log)
+    log_file = _build_log_file(base_path, log_type, model_name, temp_log, run_id)
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
     file_formatter = logging.Formatter(
@@ -115,6 +122,7 @@ def get_logger(
     logger.info("Log type: %s", log_type)
     logger.info("Log file: %s", log_file)
     logger.info("Log level: %s", logging.getLevelName(log_level))
+    logger.info("Run id: %s", run_id or "N/A")
     logger.info("Model name: %s", model_name or "N/A")
     logger.info("=" * 60)
 
