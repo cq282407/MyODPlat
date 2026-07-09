@@ -123,14 +123,15 @@ def log_train_metrics(
     logger: logging.Logger | None = None,
     key_width: int = 20,
     section_width: int = 60,
+    title: str = "训练结果",
 ) -> None:
-    """Log a human-friendly metrics summary."""
+    """Log a human-friendly metrics summary for train/val runs."""
 
     log = logger or logging.getLogger(__name__)
     line = "=" * section_width
     thin = "-" * section_width
     log.info(line)
-    log.info(pad_to_width(f"训练结果 ({metrics.task} Task)", section_width, align="center"))
+    log.info(pad_to_width(f"{title} ({metrics.task} Task)", section_width, align="center"))
     log.info(line)
     log.info(pad_to_width("基本信息", section_width, align="center"))
     log.info(thin)

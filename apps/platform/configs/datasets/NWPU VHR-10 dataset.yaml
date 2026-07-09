@@ -1,4 +1,4 @@
-path: C:/Users/Chen Qiang/Desktop/MyODPlatform/data/processed/nwpu_demo_random
+path: ../../../../data/processed/nwpu_demo_random
 train: images/train
 val: images/val
 test: images/test

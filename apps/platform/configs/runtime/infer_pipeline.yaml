@@ -1,0 +1,26 @@
+# infer_pipeline.yaml — D8 frame source + visualization configuration
+
+frame_source:
+  camera:
+    width: 1280
+    height: 720
+    fps: 30
+    backend: msmf
+
+visualization:
+  enabled: true
+  use_label_mapping: true
+  label_mapping:
+    aircraft: 飞机
+    oiltank: 油罐
+    overpass: 过街天桥
+    playground: 操场
+  color_mapping:
+    aircraft: [0, 255, 0]
+    oiltank: [0, 0, 255]
+    overpass: [255, 128, 0]
+    playground: [255, 100, 200]
+  default_color: [0, 255, 0]
+  # font_path: C:/Windows/Fonts/msyh.ttc
+  style:
+    text_bg_alpha: 0.6

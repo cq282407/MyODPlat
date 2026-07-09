@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from od_platform.common.config_log import log_effective_config, log_override_chains
-from od_platform.common.dataset_path import resolve_dataset_path
+from od_platform.common.dataset_path import prepare_ultralytics_dataset_yaml, resolve_dataset_path
 from od_platform.common.log_rename import rename_log_to_save_dir
 from od_platform.common.model_path import resolve_model_path
 from od_platform.common.paths import RUNS_DIR
@@ -99,12 +99,15 @@ class TrainService:
                         success=False,
                         output_dir=Path("unknown"),
                         train_time=(datetime.now() - start).total_seconds(),
-                        error=f"数据集校验失败 ({error_count} 个 ERROR), 训练未开始",
+                        error=f"数据集校验失败({error_count} 个 ERROR), 训练未开始",
                         log_path=_find_project_log_path(),
                     )
 
+            ultra_data_path = prepare_ultralytics_dataset_yaml(data_path)
+            logger.info("Ultralytics 数据集配置: %s", ultra_data_path)
+
             yolo_kwargs = config.to_ultralytics_kwargs()
-            yolo_kwargs["data"] = str(data_path)
+            yolo_kwargs["data"] = str(ultra_data_path)
             yolo_kwargs["model"] = str(model_path)
             yolo_kwargs.setdefault("project", str(RUNS_DIR / f"{config.task}_train"))
             if config.experiment_name and not yolo_kwargs.get("name"):

@@ -10,7 +10,7 @@ import math
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from od_platform.common.dataset_path import resolve_dataset_path
+from od_platform.common.dataset_path import prepare_ultralytics_dataset_yaml, resolve_dataset_path
 from od_platform.common.log_rename import rename_log_to_save_dir
 from od_platform.common.logging_utils import ROOT_LOGGER_NAME
 from od_platform.common.model_path import resolve_model_path
@@ -30,6 +30,38 @@ def test_dataset_path_returns_resolved_yaml(monkeypatch, tmp_path: Path) -> None
     monkeypatch.setattr("od_platform.common.refs.DATASET_CONFIGS_DIR", dataset_dir)
 
     assert resolve_dataset_path("sample") == (dataset_dir / "sample.yaml").resolve()
+
+
+def test_prepare_ultralytics_dataset_yaml_uses_yaml_parent_when_path_missing(tmp_path: Path) -> None:
+    dataset_dir = tmp_path / "data" / "processed" / "sample"
+    dataset_dir.mkdir(parents=True)
+    yaml_path = dataset_dir / "dataset.yaml"
+    yaml_path.write_text(
+        "train: images/train\nval: images/val\nnc: 1\nnames:\n  0: airplane\n",
+        encoding="utf-8",
+    )
+
+    runtime_yaml = prepare_ultralytics_dataset_yaml(yaml_path)
+    content = runtime_yaml.read_text(encoding="utf-8")
+
+    assert f"path: {dataset_dir.as_posix()}" in content
+    assert "train: images/train" in content
+
+
+def test_prepare_ultralytics_dataset_yaml_resolves_relative_config_path(tmp_path: Path) -> None:
+    config_dir = tmp_path / "apps" / "platform" / "configs" / "datasets"
+    dataset_dir = tmp_path / "data" / "processed" / "sample"
+    config_dir.mkdir(parents=True)
+    dataset_dir.mkdir(parents=True)
+    yaml_path = config_dir / "sample.yaml"
+    yaml_path.write_text(
+        "path: ../../../../data/processed/sample\ntrain: images/train\nval: images/val\nnc: 1\nnames:\n  0: airplane\n",
+        encoding="utf-8",
+    )
+
+    runtime_yaml = prepare_ultralytics_dataset_yaml(yaml_path)
+
+    assert f"path: {dataset_dir.as_posix()}" in runtime_yaml.read_text(encoding="utf-8")
 
 
 def test_model_path_search_dirs_hits_first_existing(tmp_path: Path) -> None:

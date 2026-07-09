@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 [project]
 name = 'od-platform'
 dynamic = ['version']
-description = "ODPlatform — 目标检测开发平台核心引擎"
+description = "ODPlatform 目标检测开发平台核心引擎"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -37,6 +37,8 @@ odp-transform = 'od_platform.cli.transform_data:main'
 odp-validate = 'od_platform.cli.validate_data:main'
 odp-gen-config = 'od_platform.runtime_config.generator:main'
 odp-train = 'od_platform.cli.train_model:main'
+odp-val = 'od_platform.cli.evaluate_model:main'
+odp-infer = 'od_platform.cli.infer_model:main'
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/od_platform"]

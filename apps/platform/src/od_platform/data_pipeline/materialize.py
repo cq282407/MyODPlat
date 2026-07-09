@@ -157,9 +157,27 @@ def _count_label_classes(label_path: Path) -> Counter[int]:
 
 
 def _write_dataset_yaml(output_dir: Path, config_yaml_path: Path, class_names: list[str]) -> None:
+    try:
+        config_root = Path(os.path.relpath(output_dir, start=config_yaml_path.parent)).as_posix()
+    except ValueError:
+        config_root = output_dir.resolve().as_posix()
+
+    (output_dir / "dataset.yaml").write_text(
+        _dataset_yaml_content(None, class_names),
+        encoding="utf-8",
+    )
+    config_yaml_path.parent.mkdir(parents=True, exist_ok=True)
+    config_yaml_path.write_text(
+        _dataset_yaml_content(config_root, class_names),
+        encoding="utf-8",
+    )
+
+
+def _dataset_yaml_content(root_ref: str | None, class_names: list[str]) -> str:
     names_yaml = "\n".join(f"  {idx}: {name}" for idx, name in enumerate(class_names))
-    content = (
-        f"path: {output_dir.as_posix()}\n"
+    path_line = "" if not root_ref else f"path: {root_ref}\n"
+    return (
+        f"{path_line}"
         "train: images/train\n"
         "val: images/val\n"
         "test: images/test\n"
@@ -167,9 +185,6 @@ def _write_dataset_yaml(output_dir: Path, config_yaml_path: Path, class_names: l
         "names:\n"
         f"{names_yaml}\n"
     )
-    (output_dir / "dataset.yaml").write_text(content, encoding="utf-8")
-    config_yaml_path.parent.mkdir(parents=True, exist_ok=True)
-    config_yaml_path.write_text(content, encoding="utf-8")
 
 
 def _write_split_report(

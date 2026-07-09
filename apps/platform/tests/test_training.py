@@ -73,9 +73,11 @@ def test_train_service_success_writes_audit_and_calls_artifacts(tmp_path: Path) 
     cfg, merger = _fake_config(tmp_path)
     yolo_results = _fake_yolo_results(tmp_path)
     report = MagicMock(exit_code=0, results=[])
+    ultra_data_path = tmp_path / "dataset.runtime.yaml"
 
     with patch(f"{S}.build_train_config", return_value=(cfg, merger)), \
          patch(f"{S}.resolve_dataset_path", return_value=tmp_path / "dataset.yaml"), \
+         patch(f"{S}.prepare_ultralytics_dataset_yaml", return_value=ultra_data_path) as prepare, \
          patch(f"{S}.resolve_model_path", return_value=Path("yolo11n.pt")), \
          patch(f"{S}.log_device_info"), \
          patch(f"{S}.log_effective_config"), \
@@ -85,7 +87,7 @@ def test_train_service_success_writes_audit_and_calls_artifacts(tmp_path: Path) 
          patch(f"{S}.rename_log_to_save_dir", return_value=tmp_path / "train.log") as rename, \
          patch(f"{S}.archive_checkpoints", return_value={"best": yolo_results.save_dir / "archive-best.pt"}) as archive, \
          patch(f"{S}.render_training_results_chart", return_value=yolo_results.save_dir / "training_results.png") as viz, \
-         patch.object(TrainService, "_run_training", return_value=yolo_results):
+         patch.object(TrainService, "_run_training", return_value=yolo_results) as run:
         (yolo_results.save_dir / "archive-best.pt").write_bytes(b"best")
         (yolo_results.save_dir / "training_results.png").write_bytes(b"png")
         result = TrainService().train("train.yaml", {"data": "sample.yaml"})
@@ -94,6 +96,8 @@ def test_train_service_success_writes_audit_and_calls_artifacts(tmp_path: Path) 
     assert result.audit_path is not None
     assert result.audit_path.exists()
     assert result.visualization_path is not None
+    assert run.call_args.args[1]["data"] == str(ultra_data_path)
+    prepare.assert_called_once()
     rename.assert_called_once()
     archive.assert_called_once()
     viz.assert_called_once()
@@ -104,6 +108,7 @@ def test_train_service_exception_returns_failed_result(tmp_path: Path) -> None:
 
     with patch(f"{S}.build_train_config", return_value=(cfg, merger)), \
          patch(f"{S}.resolve_dataset_path", return_value=tmp_path / "dataset.yaml"), \
+         patch(f"{S}.prepare_ultralytics_dataset_yaml", return_value=tmp_path / "dataset.runtime.yaml"), \
          patch(f"{S}.resolve_model_path", return_value=Path("yolo11n.pt")), \
          patch(f"{S}.log_device_info"), \
          patch(f"{S}.log_effective_config"), \

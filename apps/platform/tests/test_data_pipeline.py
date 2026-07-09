@@ -4,6 +4,7 @@
 # @Project   : ODPlatform
 # @Function  : data_pipeline converter and registry smoke tests.
 
+import os
 from pathlib import Path
 
 from PIL import Image
@@ -11,6 +12,7 @@ from PIL import Image
 from od_platform.common.constants import AnnotationFormat
 from od_platform.data_pipeline.convert.registry import ConvertOptions, list_capabilities
 from od_platform.data_pipeline.convert.service import convert_data_to_yolo
+from od_platform.data_pipeline.materialize import _write_dataset_yaml
 
 
 def test_nwpu_vhr10_converter_is_registered() -> None:
@@ -43,3 +45,19 @@ def test_nwpu_vhr10_converter_writes_yolo_labels_and_backgrounds(tmp_path: Path)
     assert (out_labels / "neg_001.txt").read_text(encoding="utf-8") == ""
     assert (tmp_path / "out" / "_source_images" / "001.jpg").exists()
     assert (tmp_path / "out" / "_source_images" / "neg_001.jpg").exists()
+
+
+def test_write_dataset_yaml_uses_portable_relative_paths(tmp_path: Path) -> None:
+    output_dir = tmp_path / "data" / "processed" / "nwpu_demo_random"
+    config_yaml_path = tmp_path / "apps" / "platform" / "configs" / "datasets" / "NWPU VHR-10 dataset.yaml"
+    output_dir.mkdir(parents=True)
+
+    _write_dataset_yaml(output_dir, config_yaml_path, ["airplane", "ship"])
+
+    dataset_text = (output_dir / "dataset.yaml").read_text(encoding="utf-8")
+    config_text = config_yaml_path.read_text(encoding="utf-8")
+    expected_rel = Path(os.path.relpath(output_dir, start=config_yaml_path.parent)).as_posix()
+
+    assert dataset_text.startswith("train: images/train\n")
+    assert "path:" not in dataset_text
+    assert config_text.startswith(f"path: {expected_rel}\n")

@@ -40,4 +40,7 @@ def resolve_model_path(model: str | Path | None, *, search_dirs: Sequence[Path] 
         model_path.name,
         [str(directory) for directory in dirs],
     )
+
+    if search_dirs is not None:
+        return Path(resolved.name)
     return Path(resolved.name) if not resolved.exists() else resolved
