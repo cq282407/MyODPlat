@@ -47,6 +47,8 @@ class ValidationOptions:
     operation: str = "data_validation"
     notes: Optional[str] = None
     details_preview_limit: int = 20
+    check_phash: bool = False
+    phash_threshold: int = 6
 
 
 @dataclass(frozen=True)

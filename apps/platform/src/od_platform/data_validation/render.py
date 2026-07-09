@@ -157,6 +157,7 @@ def _render_footer(report: ValidationReport, log: logging.Logger) -> None:
     log.info("  Data dictionary:  %s", report.data_dictionary_path)
     log.info("  Markdown report:  %s", report.markdown_path)
     log.info("  HTML report:      %s", report.html_path)
+    log.info("  Word report:      %s", report.word_path)
     log.info("  Repair CSV:       %s", report.repair_csv_path)
     log.info("  Repair Excel:     %s", report.repair_excel_path)
     log.info("  Audit JSON:       %s", report.audit_path)
@@ -238,6 +239,7 @@ def render_markdown(report: ValidationReport) -> str:
             "",
             f"- JSON report: `{report.report_path}`",
             f"- HTML report: `{report.html_path}`",
+            f"- Word report: `{report.word_path}`",
             f"- Data dictionary: `{report.data_dictionary_path}`",
             f"- Repair CSV: `{report.repair_csv_path}`",
             f"- Repair Excel: `{report.repair_excel_path}`",

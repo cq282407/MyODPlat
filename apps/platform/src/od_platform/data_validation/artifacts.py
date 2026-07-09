@@ -23,6 +23,7 @@ def artifact_manifest(report: ValidationReport) -> dict[str, str]:
         "json_report": str(report.report_path),
         "markdown_report": str(report.markdown_path),
         "html_report": str(report.html_path),
+        "word_report": str(report.word_path),
         "data_dictionary": str(report.data_dictionary_path),
         "recommendations": str(report.recommendations_path),
         "audit": str(report.audit_path),
@@ -74,6 +75,7 @@ def write_extra_artifacts(report: ValidationReport) -> None:
     write_repair_xlsx(report.repair_excel_path, repair_rows)
     write_charts(report)
     report.html_path.write_text(render_to_html(report), encoding="utf-8")
+    write_word_docx(report.word_path, report)
 
 
 def build_repair_rows(report: ValidationReport) -> list[dict[str, Any]]:
@@ -91,8 +93,10 @@ def write_repair_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "check",
         "split",
         "file",
+        "paired_file",
         "line",
         "class_id",
+        "distance",
         "issue",
         "suggestion",
         "raw",
@@ -113,8 +117,10 @@ def write_repair_xlsx(path: Path, rows: list[dict[str, Any]]) -> None:
         "check",
         "split",
         "file",
+        "paired_file",
         "line",
         "class_id",
+        "distance",
         "issue",
         "suggestion",
         "raw",
@@ -223,6 +229,7 @@ def render_to_html(report: ValidationReport) -> str:
   <ul>
     <li><code>report.json</code></li>
     <li><code>report.md</code></li>
+    <li><code>report.docx</code></li>
     <li><code>repair_items.csv</code></li>
     <li><code>repair_items.xlsx</code></li>
     <li><code>audit.json</code></li>
@@ -231,6 +238,97 @@ def render_to_html(report: ValidationReport) -> str:
 </body>
 </html>
 """
+
+
+def write_word_docx(path: Path, report: ValidationReport) -> None:
+    """Write a lightweight Word report using only the standard library."""
+
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as docx:
+        docx.writestr("[Content_Types].xml", _docx_content_types())
+        docx.writestr("_rels/.rels", _docx_root_rels())
+        docx.writestr("word/document.xml", _docx_document(report))
+
+
+def _docx_document(report: ValidationReport) -> str:
+    counts = report.severity_counts()
+    body: list[str] = [
+        _docx_paragraph("ODPlatform Data Validation Report", style="Title"),
+        _docx_paragraph(f"Run ID: {report.run_id}"),
+        _docx_paragraph(f"Started: {report.started_at_iso}"),
+        _docx_paragraph(f"YAML: {report.yaml_path}"),
+        _docx_paragraph(f"Operator: {report.operator or 'N/A'}"),
+        _docx_paragraph(f"Role: {report.operator_role or 'N/A'}"),
+        _docx_paragraph(f"Overall: {report.overall_severity}; exit_code={report.exit_code}"),
+        _docx_paragraph(
+            "Counts: "
+            f"PASS={counts[CheckSeverity.PASS]}, "
+            f"INFO={counts[CheckSeverity.INFO]}, "
+            f"WARNING={counts[CheckSeverity.WARNING]}, "
+            f"ERROR={counts[CheckSeverity.ERROR]}"
+        ),
+        _docx_paragraph("Recommendations", style="Heading1"),
+    ]
+    for item in report.recommendations or []:
+        body.append(
+            _docx_paragraph(
+                f"[{item.get('severity', '')}] {item.get('check', '')}: {item.get('suggestion', '')}"
+            )
+        )
+
+    body.extend(
+        [
+            _docx_paragraph("Checks", style="Heading1"),
+            _docx_table(
+                [["Check", "Severity", "Summary"]]
+                + [[result.name, result.severity, result.summary] for result in report.results]
+            ),
+            _docx_paragraph("Artifacts", style="Heading1"),
+            _docx_paragraph("report.json; report.md; report.html; repair_items.csv; repair_items.xlsx"),
+        ]
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        "<w:body>"
+        + "".join(body)
+        + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" '
+        'w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr>'
+        "</w:body></w:document>"
+    )
+
+
+def _docx_paragraph(text: str, style: str | None = None) -> str:
+    style_xml = f'<w:pPr><w:pStyle w:val="{escape(style)}"/></w:pPr>' if style else ""
+    return f"<w:p>{style_xml}<w:r><w:t>{escape(text)}</w:t></w:r></w:p>"
+
+
+def _docx_table(rows: list[list[str]]) -> str:
+    table_rows = []
+    for row in rows:
+        cells = "".join(
+            "<w:tc><w:p><w:r><w:t>"
+            + escape(str(cell))
+            + "</w:t></w:r></w:p></w:tc>"
+            for cell in row
+        )
+        table_rows.append(f"<w:tr>{cells}</w:tr>")
+    return "<w:tbl>" + "".join(table_rows) + "</w:tbl>"
+
+
+def _docx_content_types() -> str:
+    return """<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>"""
+
+
+def _docx_root_rels() -> str:
+    return """<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>"""
 
 
 def _suggestion_for(check_name: str, details: dict[str, Any]) -> str:
@@ -246,6 +344,7 @@ def _suggestion_for(check_name: str, details: dict[str, Any]) -> str:
         "class_presence": "Add or rebalance samples so every class appears in train and preferably val/test.",
         "class_balance": "Consider targeted collection, class-aware split, sampling weights or augmentation for rare classes.",
         "bbox_area_profile": "Review tiny or huge boxes; they may be labeling mistakes or require special training settings.",
+        "phash_duplicates": "Review near-duplicate image pairs; remove duplicated samples or keep them in a single split.",
     }
     return suggestions.get(check_name, f"Review details for {check_name}: {json.dumps(details, ensure_ascii=False)[:160]}")
 
@@ -266,8 +365,10 @@ def _rows_for_result(
                 "check": check_name,
                 "split": item.get("split", ""),
                 "file": item.get("path") or item.get("label") or item.get("file") or "",
+                "paired_file": item.get("paired_path") or item.get("paired_file") or "",
                 "line": item.get("line") or item.get("line_no") or item.get("duplicate_line") or "",
                 "class_id": item.get("class_id", ""),
+                "distance": item.get("distance", ""),
                 "issue": issue or item.get("reason") or summary,
                 "suggestion": suggestion,
                 "raw": item.get("raw", ""),
@@ -281,6 +382,7 @@ def _rows_for_result(
         "duplicates_preview",
         "tiny_preview",
         "huge_preview",
+        "pairs_preview",
     ):
         for item in details.get(key, []) or []:
             add(item)

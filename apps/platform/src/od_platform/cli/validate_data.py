@@ -40,6 +40,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--device-tag", default=None, help="Human-readable device tag, e.g. lab-laptop-01")
     parser.add_argument("--operation", default="data_validation", help="Operation name written to audit artifacts")
     parser.add_argument("--notes", default=None, help="Free-form validation note written to reports")
+    parser.add_argument(
+        "--check-phash",
+        action="store_true",
+        help="Enable heavy perceptual-hash near-duplicate image check.",
+    )
+    parser.add_argument(
+        "--phash-threshold",
+        type=int,
+        default=6,
+        help="Maximum pHash Hamming distance treated as near-duplicate.",
+    )
     args = parser.parse_args(argv)
 
     get_logger(base_path=LOGGING_DIR, log_type="validate")
@@ -53,6 +64,8 @@ def main(argv: list[str] | None = None) -> int:
         device_tag=args.device_tag,
         operation=args.operation,
         notes=args.notes,
+        check_phash=args.check_phash,
+        phash_threshold=args.phash_threshold,
     )
 
     try:

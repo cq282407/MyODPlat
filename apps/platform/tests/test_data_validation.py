@@ -35,12 +35,14 @@ def test_validate_dataset_clean_case_writes_artifacts(tmp_path: Path) -> None:
     assert (run_dir / "report.json").exists()
     assert (run_dir / "report.md").exists()
     assert (run_dir / "report.html").exists()
+    assert (run_dir / "report.docx").exists()
     assert (run_dir / "data_dictionary.json").exists()
     assert (run_dir / "audit.json").exists()
     assert (run_dir / "recommendations.json").exists()
     assert (run_dir / "repair_items.csv").exists()
     assert (run_dir / "repair_items.xlsx").exists()
     assert (run_dir / "charts" / "class_distribution.svg").exists()
+    assert any(result.name == "phash_duplicates" and result.severity == CheckSeverity.INFO for result in report.results)
 
 
 def test_validate_dataset_catches_bad_label_format(tmp_path: Path) -> None:
@@ -72,6 +74,26 @@ def test_validate_dataset_catches_real_bbox_overflow(tmp_path: Path) -> None:
     )
 
 
+def test_validate_dataset_phash_finds_near_duplicate_images(tmp_path: Path) -> None:
+    yaml_path = _make_yolo_dataset(tmp_path / "dataset")
+    run_dir = tmp_path / "run"
+
+    report = validate_dataset(
+        yaml_path,
+        options=_options(run_dir, check_phash=True, phash_threshold=0),
+    )
+
+    phash_result = next(result for result in report.results if result.name == "phash_duplicates")
+    assert report.exit_code == 1
+    assert phash_result.severity == CheckSeverity.WARNING
+    assert phash_result.details["pairs_count"] >= 1
+
+    repair_csv = (run_dir / "repair_items.csv").read_text(encoding="utf-8-sig")
+    assert "phash_duplicates" in repair_csv
+    assert "paired_file" in repair_csv.splitlines()[0]
+    assert "distance" in repair_csv.splitlines()[0]
+
+
 def test_validate_cli_uses_exit_codes(tmp_path: Path) -> None:
     yaml_path = _make_yolo_dataset(tmp_path / "dataset")
 
@@ -91,10 +113,10 @@ def test_validate_cli_uses_exit_codes(tmp_path: Path) -> None:
     assert exit_code == 0
 
 
-def _options(run_dir: Path):
+def _options(run_dir: Path, **overrides):
     from od_platform.data_validation.registry import ValidationOptions
 
-    return ValidationOptions(run_id="pytest", output_dir=run_dir, operator="pytest")
+    return ValidationOptions(run_id="pytest", output_dir=run_dir, operator="pytest", **overrides)
 
 
 def _make_yolo_dataset(root: Path) -> Path:

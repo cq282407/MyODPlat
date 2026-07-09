@@ -39,9 +39,11 @@ class ValidationReport:
 
     @property
     def overall_severity(self) -> str:
-        if not self.results:
+        if self.has_errors:
             return CheckSeverity.ERROR
-        return max(self.results, key=lambda result: CheckSeverity.score(result.severity)).severity
+        if self.has_warnings:
+            return CheckSeverity.WARNING
+        return CheckSeverity.PASS
 
     @property
     def has_errors(self) -> bool:
@@ -74,6 +76,10 @@ class ValidationReport:
     @property
     def html_path(self) -> Path:
         return self.run_dir / "report.html"
+
+    @property
+    def word_path(self) -> Path:
+        return self.run_dir / "report.docx"
 
     @property
     def repair_csv_path(self) -> Path:

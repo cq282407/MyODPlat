@@ -213,11 +213,12 @@ class _Renderer(Thread):
 class _Display(Thread):
     """显示线程: imshow + pollKey (非阻塞) 抓键 + 暂停层."""
 
-    def __init__(self, out_q: Queue, window_name: str, controller: _Controller) -> None:
+    def __init__(self, out_q: Queue, window_name: str, controller: _Controller, *, delay_ms: int = 1) -> None:
         super().__init__(daemon=True)
         self._out = out_q
         self._win = window_name
         self._ctrl = controller
+        self._delay_ms = max(1, int(delay_ms))
         self._stop_evt = Event()
         self._key_lock = Lock()
         self._key = -1
@@ -233,13 +234,14 @@ class _Display(Thread):
 
     def run(self) -> None:
         import cv2
+        cv2.namedWindow(self._win, cv2.WINDOW_NORMAL)
         poll = cv2.pollKey if hasattr(cv2, "pollKey") else (lambda: cv2.waitKey(1))
         while not self._stop_evt.is_set():
             frame = None
             try:
                 item = self._out.get(timeout=0.03)
                 if item is _SENTINEL:
-                    pass
+                    break
                 else:
                     frame = item
                     self._last = frame
@@ -249,7 +251,9 @@ class _Display(Thread):
                     draw_pause(frame)
             if frame is not None:
                 cv2.imshow(self._win, frame)
-            key = poll() & 0xFF
+                key = cv2.waitKey(self._delay_ms) & 0xFF
+            else:
+                key = poll() & 0xFF
             if key != 255:
                 with self._key_lock:
                     self._key = key
@@ -350,6 +354,8 @@ class ThreadedPipeline:
                         raise reader.error
                     continue
                 if first is _SENTINEL:
+                    if reader.error:
+                        raise reader.error
                     break
                 batch = [first]
                 ended = False
@@ -358,6 +364,8 @@ class ThreadedPipeline:
                     if nxt is None:
                         break
                     if nxt is _SENTINEL:
+                        if reader.error:
+                            raise reader.error
                         ended = True
                         break
                     batch.append(nxt)
@@ -392,7 +400,12 @@ class ThreadedPipeline:
                     )
                     renderer.start()
                     if self.show:
-                        display = _Display(out_q, self.window_name, controller)
+                        display = _Display(
+                            out_q,
+                            self.window_name,
+                            controller,
+                            delay_ms=_display_delay_ms(first, live=live),
+                        )
                         display.start()
 
                 # --- 主线程: 批量 predict ---
@@ -450,14 +463,21 @@ class ThreadedPipeline:
                 renderer.join(timeout=3.0)
                 renderer.stop()
             if display is not None:
-                time.sleep(0.05)
-                display.stop()
-                display.join(timeout=1.0)
+                display.join(timeout=3.0)
+                if display.is_alive():
+                    display.stop()
+                    display.join(timeout=1.0)
             if sink_opened:
                 try:
                     self.sink.close()
                 except Exception as e:
                     logger.warning(f"sink.close 异常 (已吞): {e}")
+
+        if stats.frames == 0:
+            raise RuntimeError(
+                f"no frames were processed from source: {self.source}. "
+                "Check that the source exists, OpenCV can open it, and warmup is smaller than total frames."
+            )
 
         _write_fps(stats, m)
         logger.info("流水线收尾: 捕获 %.1f | 推理 %.1f | 渲染 %.1f | loop %.1f FPS"
@@ -486,3 +506,12 @@ def _write_fps(stats, m: Metrics) -> None:
     stats.loop_fps = snap["loop_fps"]
     stats.current_fps = snap["current_fps"]
     stats.speed_ms = snap["speed_ms"]
+
+
+def _display_delay_ms(frame, *, live: bool) -> int:
+    if live:
+        return 1
+    fps = getattr(frame.info, "fps", None)
+    if not fps or fps <= 0:
+        return 33
+    return max(1, min(500, int(1000 / fps)))
