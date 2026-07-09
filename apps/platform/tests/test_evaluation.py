@@ -120,6 +120,27 @@ def test_val_cli_parser_accepts_expected_arguments() -> None:
     assert args.plots is False
 
 
+def test_infer_cli_parser_passes_video_stride() -> None:
+    from od_platform.cli.infer import _build_parser, _ns_to_cli_args
+
+    args = _build_parser().parse_args(
+        [
+            "--source",
+            "demo.mp4",
+            "--model",
+            "best.pt",
+            "--vid-stride",
+            "2",
+            "--no-show",
+        ]
+    )
+
+    cli_args = _ns_to_cli_args(args)
+    assert args.vid_stride == 2
+    assert cli_args["vid_stride"] == 2
+    assert cli_args["show"] is False
+
+
 def test_val_cli_returns_success_with_mocked_service() -> None:
     fake_result = MagicMock(success=True, save_dir=Path("runs/val"), val_time=1.0)
 

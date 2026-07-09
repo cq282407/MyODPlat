@@ -19,6 +19,7 @@ from od_platform.frame_source import (
     create_async_source,
     create_frame_source,
     create_threaded_source,
+    list_sources,
 )
 
 
@@ -67,6 +68,13 @@ def test_factory_detects_sources_and_fails_fast(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         create_frame_source(tmp_path / "missing.jpg")
+
+
+def test_source_registry_drives_factory_matching() -> None:
+    registered = set(list_sources())
+
+    assert {CameraSource, ImageFolderSource, ImageSource, VideoSource}.issubset(registered)
+    assert isinstance(create_frame_source("rtsp://example.invalid/live"), VideoSource)
 
 
 def test_video_source_reads_and_seeks(tmp_path: Path) -> None:

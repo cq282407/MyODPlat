@@ -27,7 +27,7 @@ def _is_video_source(source_text: str) -> bool:
     return p.suffix.lower() in VIDEO_EXTENSIONS
 
 
-@register_source(_is_video_source, priority=50)
+@register_source(_is_video_source, priority=20)
 class VideoSource(FrameSource):
     """FrameSource for video files and OpenCV-readable network streams."""
 

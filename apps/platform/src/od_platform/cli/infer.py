@@ -45,6 +45,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-det", type=int, default=None, dest="max_det", help="单图最大检测数.")
     p.add_argument("--classes", type=int, nargs="+", default=None, help="只保留这些类别 ID.")
     p.add_argument("--device", type=str, default=None, help="cpu / 0 / 0,1 / mps.")
+    p.add_argument("--vid-stride", type=int, default=None, dest="vid_stride",
+                   help="Video frame stride, 1=every frame, 2=every other frame.")
     p.add_argument("--batch", type=int, default=None, help="批大小 (视频/图片夹).")
 
     # ---- 显示 / 存盘 ----
@@ -75,7 +77,7 @@ def _ns_to_cli_args(ns: argparse.Namespace) -> dict:
     """
     keys = ("source", "model", "experiment_name",
             "conf", "iou", "imgsz", "max_det", "classes", "device", "batch",
-            "show", "save")
+            "vid_stride", "show", "save")
     return {k: v for k in keys if (v := getattr(ns, k, None)) is not None}
 
 

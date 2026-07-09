@@ -18,6 +18,8 @@ from od_platform.frame_source.sources.video import VideoSource  # noqa: F401
 from od_platform.frame_source.wrappers.aio import AsyncSource
 from od_platform.frame_source.wrappers.threaded import ThreadedSource
 
+NETWORK_PREFIXES = ("rtsp://", "rtmp://", "http://", "https://")
+
 
 def create_frame_source(
     source: str | int | Path,
@@ -45,7 +47,7 @@ def create_frame_source(
 
     # 非摄像头源: 路径不存在则报错
     path = Path(source_text)
-    if not source_text.isdigit() and not path.exists():
+    if not source_text.lower().startswith(NETWORK_PREFIXES) and not path.exists():
         raise ValueError(f"source path does not exist: {source_text}")
 
     return source_cls(source_text, stride=stride)

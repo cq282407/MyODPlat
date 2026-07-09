@@ -18,6 +18,7 @@ from od_platform.frame_source.factory import (
     create_frame_source,
     create_threaded_source,
 )
+from od_platform.frame_source.registry import list_sources, register_source
 from od_platform.frame_source.sources.camera import CameraSource
 from od_platform.frame_source.sources.image import ImageFolderSource, ImageSource
 from od_platform.frame_source.sources.video import VideoSource
@@ -43,5 +44,6 @@ __all__ = [
     "create_async_source",
     "create_frame_source",
     "create_threaded_source",
+    "list_sources",
+    "register_source",
 ]
-

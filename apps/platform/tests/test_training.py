@@ -5,6 +5,7 @@
 # @Function  : D6 training service and archive tests.
 from __future__ import annotations
 
+import json
 from argparse import Namespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -29,8 +30,47 @@ def test_archive_copies_best_and_last(tmp_path: Path) -> None:
     assert "yolo11n" in result["best"].name
 
 
+def test_archive_accepts_preset_basename(tmp_path: Path) -> None:
+    train_dir = _fake_train_dir(tmp_path)
+    archive_dir = tmp_path / "archive"
+
+    result = archive_checkpoints(
+        train_dir,
+        "yolo11n.pt",
+        checkpoint_dir=archive_dir,
+        archive_basename="d6_demo_nwpu",
+    )
+
+    assert result["best"].name == "d6_demo_nwpu-best.pt"
+    assert result["last"].name == "d6_demo_nwpu-last.pt"
+
+
+def test_archive_preset_basename_does_not_overwrite(tmp_path: Path) -> None:
+    train_dir = _fake_train_dir(tmp_path)
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    (archive_dir / "d6_demo_nwpu-best.pt").write_bytes(b"old")
+
+    result = archive_checkpoints(
+        train_dir,
+        "yolo11n.pt",
+        checkpoint_dir=archive_dir,
+        archive_basename="d6_demo_nwpu",
+    )
+
+    assert result["best"].name == "d6_demo_nwpu_2-best.pt"
+    assert (archive_dir / "d6_demo_nwpu-best.pt").read_bytes() == b"old"
+
+
 def test_archive_missing_train_dir_returns_empty(tmp_path: Path) -> None:
-    assert archive_checkpoints(tmp_path / "missing", "yolo11n.pt", checkpoint_dir=tmp_path / "archive") == {}
+    assert (
+        archive_checkpoints(
+            tmp_path / "missing",
+            "yolo11n.pt",
+            checkpoint_dir=tmp_path / "archive",
+        )
+        == {}
+    )
 
 
 def test_visualization_writes_png_from_results_csv(tmp_path: Path) -> None:
@@ -73,6 +113,14 @@ def test_train_service_success_writes_audit_and_calls_artifacts(tmp_path: Path) 
     cfg, merger = _fake_config(tmp_path)
     yolo_results = _fake_yolo_results(tmp_path)
     report = MagicMock(exit_code=0, results=[])
+    report.run_id = "d6_demo_nwpu_precheck"
+    report.operation = "training_pre_validation"
+    report.overall_severity = "PASS"
+    report.severity_counts.return_value = {"PASS": 1, "INFO": 0, "WARNING": 0, "ERROR": 0}
+    report.report_path = tmp_path / "validation" / "report.json"
+    report.markdown_path = tmp_path / "validation" / "report.md"
+    report.html_path = tmp_path / "validation" / "report.html"
+    report.word_path = tmp_path / "validation" / "report.docx"
 
     with patch(f"{S}.build_train_config", return_value=(cfg, merger)), \
          patch(f"{S}.resolve_dataset_path", return_value=tmp_path / "dataset.yaml"), \
@@ -83,20 +131,50 @@ def test_train_service_success_writes_audit_and_calls_artifacts(tmp_path: Path) 
          patch(f"{S}.validate_dataset", return_value=report), \
          patch(f"{S}.render_to_logger"), \
          patch(f"{S}.rename_log_to_save_dir", return_value=tmp_path / "train.log") as rename, \
-         patch(f"{S}.archive_checkpoints", return_value={"best": yolo_results.save_dir / "archive-best.pt"}) as archive, \
-         patch(f"{S}.render_training_results_chart", return_value=yolo_results.save_dir / "training_results.png") as viz, \
-         patch.object(TrainService, "_run_training", return_value=yolo_results):
+         patch(
+             f"{S}.archive_checkpoints",
+             return_value={"best": yolo_results.save_dir / "archive-best.pt"},
+         ) as archive, \
+         patch(
+             f"{S}.render_training_results_chart",
+             return_value=yolo_results.save_dir / "training_results.png",
+         ) as viz, \
+         patch.object(TrainService, "_run_training", return_value=yolo_results) as run:
         (yolo_results.save_dir / "archive-best.pt").write_bytes(b"best")
         (yolo_results.save_dir / "training_results.png").write_bytes(b"png")
-        result = TrainService().train("train.yaml", {"data": "sample.yaml"})
+        result = TrainService().train(
+            "train.yaml",
+            {"data": "sample.yaml"},
+            run_id="d6_demo_nwpu",
+            operator="pytest",
+            operator_role="qa",
+            notes="smoke run",
+        )
 
     assert result.success is True
     assert result.audit_path is not None
     assert result.audit_path.exists()
+    audit_payload = json.loads(result.audit_path.read_text(encoding="utf-8"))
+    assert audit_payload["run_id"] == "d6_demo_nwpu"
+    assert audit_payload["result_summary"]["data_path"] == str(tmp_path / "dataset.yaml")
+    assert result.report_json_path is not None
+    assert result.report_json_path.exists()
+    report_payload = json.loads(result.report_json_path.read_text(encoding="utf-8"))
+    assert report_payload["run_id"] == "d6_demo_nwpu"
+    assert report_payload["operator"]["name"] == "pytest"
+    assert report_payload["operator"]["role"] == "qa"
+    assert report_payload["dataset"]["quality"]["run_id"] == "d6_demo_nwpu_precheck"
+    assert result.report_markdown_path is not None
+    assert result.report_markdown_path.exists()
     assert result.visualization_path is not None
     rename.assert_called_once()
-    archive.assert_called_once()
+    archive.assert_called_once_with(
+        yolo_results.save_dir,
+        "yolo11n.pt",
+        archive_basename="d6_demo_nwpu",
+    )
     viz.assert_called_once()
+    assert run.call_args.args[1]["name"] == "d6_demo_nwpu"
 
 
 def test_train_service_exception_returns_failed_result(tmp_path: Path) -> None:
@@ -118,11 +196,27 @@ def test_train_service_exception_returns_failed_result(tmp_path: Path) -> None:
 
 
 def test_train_cli_parser_accepts_expected_arguments() -> None:
-    args = build_parser().parse_args(["--data", "sample.yaml", "--epochs", "1", "--batch", "0.5", "--no-archive"])
+    args = build_parser().parse_args(
+        [
+            "--data",
+            "sample.yaml",
+            "--epochs",
+            "1",
+            "--batch",
+            "0.5",
+            "--run-id",
+            "d6_demo",
+            "--operator",
+            "课堂展示",
+            "--no-archive",
+        ]
+    )
 
     assert args.data == "sample.yaml"
     assert args.epochs == 1
     assert args.batch == 0.5
+    assert args.run_id == "d6_demo"
+    assert args.operator == "课堂展示"
     assert args.archive is False
 
 
@@ -132,10 +226,24 @@ def test_train_cli_returns_success_with_mocked_service() -> None:
     with patch("od_platform.cli.train_model.get_logger"), \
          patch("od_platform.cli.train_model.TrainService") as service_cls:
         service_cls.return_value.train.return_value = fake_result
-        exit_code = train_main(["--data", "sample.yaml", "--epochs", "1"])
+        exit_code = train_main(
+            [
+                "--data",
+                "sample.yaml",
+                "--epochs",
+                "1",
+                "--run-id",
+                "d6_demo",
+                "--operator",
+                "课堂展示",
+            ]
+        )
 
     assert exit_code == 0
     service_cls.return_value.train.assert_called_once()
+    call = service_cls.return_value.train.call_args
+    assert call.kwargs["run_id"] == "d6_demo"
+    assert call.kwargs["operator"] == "课堂展示"
 
 
 def _fake_train_dir(root: Path) -> Path:

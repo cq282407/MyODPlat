@@ -25,6 +25,8 @@ from od_platform.data_validation.render import render_to_logger
 from od_platform.data_validation.registry import ValidationOptions
 from od_platform.runtime_config import build_train_config
 from od_platform.training.archive import archive_checkpoints
+from od_platform.training.report import write_training_report
+from od_platform.training.run_context import build_training_run_context
 from od_platform.training.visualization import render_training_results_chart
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,8 @@ class TrainResult:
     audit_path: Path | None = None
     log_path: Path | None = None
     visualization_path: Path | None = None
+    report_json_path: Path | None = None
+    report_markdown_path: Path | None = None
 
 
 class TrainService:
@@ -57,6 +61,10 @@ class TrainService:
         pre_validate: bool = True,
         archive: bool = True,
         rename_log: bool = True,
+        run_id: str | None = None,
+        operator: str | None = None,
+        operator_role: str | None = None,
+        notes: str | None = None,
     ) -> TrainResult:
         """Run one training workflow and never raise across the service boundary."""
 
@@ -82,19 +90,41 @@ class TrainService:
             logger.info("模型声明: %s", raw_model)
             model_path = resolve_model_path(raw_model)
             logger.info("模型路径: %s", model_path)
+            run_context = build_training_run_context(
+                config=config,
+                data_path=data_path,
+                model_path=model_path,
+                raw_data=raw_data,
+                raw_model=raw_model,
+                started_at=start,
+                run_id=run_id,
+                operator=operator,
+                operator_role=operator_role,
+                notes=notes,
+            )
+            logger.info("训练运行 ID: %s", run_context.run_id)
 
             log_device_info(target_logger=logger)
             log_effective_config(config, merger, logger=logger)
             log_override_chains(config, merger, logger=logger)
 
+            validation_report: Any | None = None
             if pre_validate:
-                report = validate_dataset(
+                validation_report = validate_dataset(
                     data_path,
-                    options=ValidationOptions(operation="training_pre_validation"),
+                    options=ValidationOptions(
+                        run_id=f"{run_context.run_id}_precheck",
+                        operator=operator,
+                        operator_role=operator_role,
+                        operation="training_pre_validation",
+                        notes=notes,
+                    ),
                 )
-                render_to_logger(report, logger)
-                if report.exit_code >= 2:
-                    error_count = sum(1 for result in report.results if result.severity == "ERROR")
+                render_to_logger(validation_report, logger)
+                if validation_report.exit_code >= 2:
+                    error_count = sum(
+                        1 for result in validation_report.results if result.severity == "ERROR"
+                    )
                     return TrainResult(
                         success=False,
                         output_dir=Path("unknown"),
@@ -107,12 +137,13 @@ class TrainService:
             yolo_kwargs["data"] = str(data_path)
             yolo_kwargs["model"] = str(model_path)
             yolo_kwargs.setdefault("project", str(RUNS_DIR / f"{config.task}_train"))
-            if config.experiment_name and not yolo_kwargs.get("name"):
-                yolo_kwargs["name"] = config.experiment_name
+            if run_id or not yolo_kwargs.get("name"):
+                yolo_kwargs["name"] = run_context.run_id
 
             logger.info("=" * 60)
             logger.info("启动训练")
             logger.info("输出目录(project): %s", yolo_kwargs["project"])
+            logger.info("输出名称(name): %s", yolo_kwargs["name"])
             logger.info("=" * 60)
 
             yolo_results = self._run_training(model_path, yolo_kwargs)
@@ -135,29 +166,60 @@ class TrainService:
 
             archived: dict[str, Path] = {}
             if archive:
-                archived = archive_checkpoints(output_dir, raw_model)
+                archived = archive_checkpoints(
+                    output_dir,
+                    raw_model,
+                    archive_basename=run_context.archive_basename,
+                )
 
             train_time = (datetime.now() - start).total_seconds()
             log_path = _find_project_log_path()
+            best_weight = archived.get("best") or (output_dir / "weights" / "best.pt")
+            last_weight = archived.get("last") or (output_dir / "weights" / "last.pt")
             audit_path = _write_audit(
                 output_dir=output_dir,
+                run_id=run_context.run_id,
                 config=config,
                 merger=merger,
                 metrics=metrics,
                 train_time=train_time,
+                data_path=data_path,
+                model_path=model_path,
+                validation_report=validation_report,
                 archived=archived,
                 log_path=log_path,
                 visualization_path=visualization_path,
             )
+            report_json_path, report_markdown_path = write_training_report(
+                output_dir=output_dir,
+                run_context=run_context,
+                config=config,
+                merger=merger,
+                metrics=metrics,
+                train_time=train_time,
+                raw_data=raw_data,
+                data_path=data_path,
+                raw_model=raw_model,
+                model_path=model_path,
+                validation_report=validation_report,
+                archived=archived,
+                best_weight=best_weight,
+                last_weight=last_weight,
+                log_path=log_path,
+                visualization_path=visualization_path,
+                audit_path=audit_path,
+            )
 
-            best_weight = archived.get("best") or (output_dir / "weights" / "best.pt")
-            last_weight = archived.get("last") or (output_dir / "weights" / "last.pt")
             logger.info("训练总耗时: %.2f 秒", train_time)
             logger.info("输出目录: %s", output_dir)
             logger.info("最佳权重: %s", best_weight)
             logger.info("最后权重: %s", last_weight)
             if visualization_path:
                 logger.info("训练曲线: %s", visualization_path)
+            if report_json_path:
+                logger.info("训练报告(JSON): %s", report_json_path)
+            if report_markdown_path:
+                logger.info("训练报告(Markdown): %s", report_markdown_path)
 
             return TrainResult(
                 success=True,
@@ -169,6 +231,8 @@ class TrainService:
                 audit_path=audit_path,
                 log_path=log_path,
                 visualization_path=visualization_path,
+                report_json_path=report_json_path,
+                report_markdown_path=report_markdown_path,
             )
         except Exception as exc:
             logger.error("训练失败: %s", exc, exc_info=True)
@@ -198,6 +262,10 @@ def train_yolo(
     pre_validate: bool = True,
     archive: bool = True,
     rename_log: bool = True,
+    run_id: str | None = None,
+    operator: str | None = None,
+    operator_role: str | None = None,
+    notes: str | None = None,
 ) -> TrainResult:
     """Convenience wrapper around TrainService().train()."""
 
@@ -207,6 +275,10 @@ def train_yolo(
         pre_validate=pre_validate,
         archive=archive,
         rename_log=rename_log,
+        run_id=run_id,
+        operator=operator,
+        operator_role=operator_role,
+        notes=notes,
     )
 
 
@@ -227,10 +299,14 @@ def _find_project_log_path() -> Path | None:
 def _write_audit(
     *,
     output_dir: Path,
+    run_id: str,
     config: Any,
     merger: Any,
     metrics: TrainMetrics,
     train_time: float,
+    data_path: Path,
+    model_path: Path,
+    validation_report: Any | None,
     archived: dict[str, Path],
     log_path: Path | None,
     visualization_path: Path | None,
@@ -239,11 +315,15 @@ def _write_audit(
     payload = {
         "schema_version": 1,
         "kind": "train",
+        "run_id": run_id,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "config": config.to_audit_snapshot(),
         "merger": merger.to_audit_log(),
         "metrics": metrics.to_dict(),
         "result_summary": {
+            "data_path": str(data_path),
+            "model_path": str(model_path),
+            "validation": _validation_audit_summary(validation_report),
             "best_archive": str(archived.get("best", "")) or None,
             "last_archive": str(archived.get("last", "")) or None,
             "train_time_sec": train_time,
@@ -258,3 +338,29 @@ def _write_audit(
         return None
     logger.info("审计快照: %s", audit_path)
     return audit_path
+
+
+def _validation_audit_summary(report: Any | None) -> dict[str, Any] | None:
+    if report is None:
+        return None
+    severity_counts = getattr(report, "severity_counts", None)
+    payload = {
+        "run_id": getattr(report, "run_id", None),
+        "overall_severity": getattr(report, "overall_severity", None),
+        "exit_code": getattr(report, "exit_code", None),
+        "severity_counts": severity_counts() if severity_counts else {},
+        "report_path": str(getattr(report, "report_path", "")) or None,
+    }
+    return _json_safe(payload)
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        return {str(key): _json_safe(child) for key, child in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(child) for child in value]
+    return str(value)
