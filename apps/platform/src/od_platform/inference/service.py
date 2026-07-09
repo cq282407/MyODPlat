@@ -340,6 +340,8 @@ class InferService:
 
             from .pipeline import ThreadedPipeline
             logger.info(f"执行引擎: 多线程流水线 (batch={batch_size}, 显示与主循环解耦)")
+            stride = getattr(config, "vid_stride", 1) or 1
+
             pipeline = ThreadedPipeline(
                 processor=processor,
                 source=str(raw_source),
@@ -354,6 +356,7 @@ class InferService:
                 warmup_frames=warmup_frames,
                 hooks=hooks,
                 cancel_token=cancel_token,
+                stride=stride,
             )
             interrupted = pipeline.run(stats)
 

@@ -14,10 +14,12 @@ import cv2
 from od_platform.frame_source.core.base import FrameSource
 from od_platform.frame_source.core.config import CameraBackend, CameraConfig
 from od_platform.frame_source.core.types import Frame, FrameInfo, SourceType
+from od_platform.frame_source.registry import register_source
 
 logger = logging.getLogger(__name__)
 
 
+@register_source(lambda s: s.isdigit(), priority=10)
 class CameraSource(FrameSource):
     """FrameSource for a local camera device."""
 
@@ -34,7 +36,6 @@ class CameraSource(FrameSource):
         self.camera_config = camera_config or CameraConfig(camera_id=int(camera_id))
         self.camera_id = self.camera_config.camera_id
         super().__init__(str(self.camera_id), stride=stride)
-        self._stride = 1
         self._cap: Optional[cv2.VideoCapture] = None
         self._start_time = 0.0
         self._frame_index = 0

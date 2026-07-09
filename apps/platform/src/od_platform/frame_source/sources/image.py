@@ -18,10 +18,22 @@ from od_platform.frame_source.core.types import (
     FrameInfo,
     SourceType,
 )
+from od_platform.frame_source.registry import register_source
 
 logger = logging.getLogger(__name__)
 
+def _is_image_file(source_text: str) -> bool:
+    from pathlib import Path
+    p = Path(source_text)
+    return p.suffix.lower() in IMAGE_EXTENSIONS
 
+def _is_directory(source_text: str) -> bool:
+    from pathlib import Path
+    p = Path(source_text)
+    return p.is_dir()
+
+
+@register_source(_is_image_file, priority=40)
 class ImageSource(FrameSource):
     """FrameSource for one image file."""
 
@@ -65,6 +77,7 @@ class ImageSource(FrameSource):
         return SourceType.IMAGE
 
 
+@register_source(_is_directory, priority=30)
 class ImageFolderSource(FrameSource):
     """FrameSource for a folder of image files."""
 
