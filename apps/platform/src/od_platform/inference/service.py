@@ -28,7 +28,7 @@ from od_platform.inference.pipeline import ThreadedPipeline
 from od_platform.inference.pipeline_config import PipelineConfig, load_pipeline_config
 from od_platform.inference.sinks import LocalFileSink, NullSink, OutputSink
 from od_platform.runtime_config import build_infer_config
-from od_platform.visualization import BeautifyVisualizer, DrawStyle
+from od_platform.visualization import AnnotationSet, BeautifyVisualizer, DrawStyle, YOLOResultAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +193,10 @@ class InferService:
                     color_mapping=pipe.color_mapping or None,
                     default_color=pipe.default_color,
                     font_path=pipe.font_path,
+                    adapter=pipe.viz_adapter if isinstance(getattr(pipe, "viz_adapter", None), str) and pipe.viz_adapter else "yolo",
+                    renderer=pipe.viz_renderer if isinstance(getattr(pipe, "viz_renderer", None), str) and pipe.viz_renderer else "auto",
+                    theme=pipe.viz_theme if isinstance(getattr(pipe, "viz_theme", None), str) and pipe.viz_theme else "classic",
+                    prefer_contour_when_mask_exists=bool(getattr(pipe, "prefer_contour_when_mask_exists", True)),
                 )
             else:
                 logger.info("美化已关闭, 使用 YOLO 原生 plot() 绘制.")
@@ -230,6 +234,7 @@ class InferService:
                 predict_kwargs=predict_kwargs,
                 do_beautify=do_beautify,
                 visualizer=visualizer,
+                result_adapter=visualizer.adapter if visualizer is not None else YOLOResultAdapter(),
                 use_label_mapping=pipe.use_label_mapping,
                 style_overrides=pipe.style_overrides,
                 names=model_obj.names or {},
@@ -431,6 +436,7 @@ class _FrameProcessor:
     predict_kwargs: dict[str, Any]
     do_beautify: bool
     visualizer: BeautifyVisualizer | None
+    result_adapter: YOLOResultAdapter
     use_label_mapping: bool
     style_overrides: dict[str, Any]
     names: dict[int, str]
@@ -440,29 +446,30 @@ class _FrameProcessor:
         started = time.perf_counter()
         results = self.model(images, **self.predict_kwargs)
         batch_dt = time.perf_counter() - started
+        annotations_list: list[AnnotationSet] = []
         labels_list: list[list[str]] = []
         n_list: list[int] = []
         for result in results:
-            class_ids = _box_class_ids(getattr(result, "boxes", None))
-            labels = [self.names.get(class_id, str(class_id)) for class_id in class_ids]
+            annotations = self.result_adapter.adapt(result, names=self.names)
+            labels = annotations.primary_labels()
+            annotations_list.append(annotations)
             labels_list.append(labels)
             n_list.append(len(labels))
-        return results, labels_list, n_list, batch_dt
+        return results, annotations_list, labels_list, n_list, batch_dt
 
-    def draw(self, image, result, labels, n_dets):
+    def draw(self, image, result, annotations: AnnotationSet):
         if self.do_beautify and self.visualizer is not None:
             if self._style is None:
                 height, width = image.shape[:2]
-                self._style = DrawStyle.from_image_size(height, width, **self.style_overrides)
-            boxes = getattr(result, "boxes", None)
-            detections = BeautifyVisualizer.from_yolo_results(
-                boxes=_box_xyxy(boxes, n_dets),
-                confidences=_box_conf(boxes, n_dets),
-                labels=labels,
-            )
+                self._style = DrawStyle.from_image_size(
+                    height,
+                    width,
+                    theme=self.visualizer.theme,
+                    **self.style_overrides,
+                )
             return self.visualizer.draw(
                 image,
-                detections,
+                annotations,
                 style=self._style,
                 use_label_mapping=self.use_label_mapping,
             )
@@ -548,4 +555,5 @@ def _to_int_list(value) -> list:
     if isinstance(obj, (list, tuple)):
         return list(obj)
     return [obj]
+
 

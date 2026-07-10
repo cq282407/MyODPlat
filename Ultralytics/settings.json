@@ -1,0 +1,21 @@
+{
+  "settings_version": "0.0.6",
+  "datasets_dir": "D:\\myodplat\\MyODPlat\\datasets",
+  "weights_dir": "weights",
+  "runs_dir": "runs",
+  "uuid": "78045392033c313f3d6f3c528eb2a29db5eeee166348173ce2e9520e0f9474f1",
+  "sync": true,
+  "api_key": "",
+  "openai_api_key": "",
+  "clearml": true,
+  "comet": true,
+  "dvc": true,
+  "hub": true,
+  "mlflow": true,
+  "neptune": true,
+  "raytune": true,
+  "tensorboard": false,
+  "wandb": false,
+  "vscode_msg": true,
+  "openvino_msg": true
+}

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 # -*- coding:utf-8 -*-
 # @FileName  : pipeline.py
 # @Project   : ODPlatform
@@ -145,12 +145,12 @@ class _Renderer(Thread):
             if item is _SENTINEL:
                 _put_block(self._out, _SENTINEL)
                 break
-            frame, result, labels, n_dets = item
+            frame, result, annotations, labels, n_dets = item
             started = time.perf_counter()
             try:
-                annotated = self._proc.draw(frame.image, result, labels, n_dets)
+                annotated = self._proc.draw(frame.image, result, annotations)
             except Exception as exc:
-                logger.warning("渲染单帧失败, 跳过: %s", exc)
+                logger.warning("娓叉煋鍗曞抚澶辫触, 璺宠繃: %s", exc)
                 continue
             self._metrics.render.update((time.perf_counter() - started) * 1000)
 
@@ -289,7 +289,7 @@ class ThreadedPipeline:
             while True:
                 if controller.is_paused():
                     if self._is_cancelled():
-                        logger.info("收到取消信号 (暂停状态), 退出.")
+                        logger.info("鏀跺埌鍙栨秷淇″彿 (鏆傚仠鐘舵€?, 閫€鍑?")
                         interrupted = True
                         break
                     if self._handle_key(display, controller):
@@ -299,7 +299,7 @@ class ThreadedPipeline:
                     continue
 
                 if self._is_cancelled():
-                    logger.info("收到取消信号, 退出主循环.")
+                    logger.info("鏀跺埌鍙栨秷淇″彿, 閫€鍑轰富寰幆.")
                     interrupted = True
                     break
 
@@ -333,7 +333,7 @@ class ThreadedPipeline:
                         self.sink.open(self.output_dir, reader.source_type or SourceType.VIDEO)
                         sink_opened = True
                     except Exception as exc:
-                        logger.error("sink.open 失败, 退化用 NullSink: %s", exc)
+                        logger.error("sink.open 澶辫触, 閫€鍖栫敤 NullSink: %s", exc)
                         self.sink = NullSink()
                         self.sink.open(self.output_dir, reader.source_type or SourceType.VIDEO)
                         sink_opened = True
@@ -356,18 +356,18 @@ class ThreadedPipeline:
                         display.start()
 
                 images = [frame.image for frame in batch]
-                results, labels_list, n_list, batch_dt = self.proc.infer_batch(images)
+                results, annotations_list, labels_list, n_list, batch_dt = self.proc.infer_batch(images)
                 stats.infer_time_sec += batch_dt
-                for frame, result, labels, n_dets in zip(batch, results, labels_list, n_list):
+                for frame, result, annotations, labels, n_dets in zip(batch, results, annotations_list, labels_list, n_list):
                     stats.frames += 1
                     stats.detections += n_dets
                     for name in labels:
                         stats.per_class[name] = stats.per_class.get(name, 0) + 1
                     metrics.add_speed(getattr(result, "speed", None))
                     if render_drop:
-                        _put_latest(in_q, (frame, result, labels, n_dets))
+                        _put_latest(in_q, (frame, result, annotations, labels, n_dets))
                     else:
-                        _put_block(in_q, (frame, result, labels, n_dets))
+                        _put_block(in_q, (frame, result, annotations, labels, n_dets))
 
                     if self.hooks.on_progress is not None and stats.frames % self.hooks.progress_interval_frames == 0:
                         self.hooks.fire_progress(
@@ -389,7 +389,7 @@ class ThreadedPipeline:
                 last_batch_end_t = batch_end_t
 
                 if self._is_cancelled():
-                    logger.info("收到取消信号 (派发后), 退出.")
+                    logger.info("鏀跺埌鍙栨秷淇″彿 (娲惧彂鍚?, 閫€鍑?")
                     interrupted = True
                     break
                 if self._handle_key(display, controller):
@@ -411,11 +411,11 @@ class ThreadedPipeline:
                 try:
                     self.sink.close()
                 except Exception as exc:
-                    logger.warning("sink.close 异常 (已吞): %s", exc)
+                    logger.warning("sink.close 寮傚父 (宸插悶): %s", exc)
 
         _write_fps(stats, metrics)
         logger.info(
-            "流水线收尾: 捕获 %.1f | 推理 %.1f | 渲染 %.1f | loop %.1f FPS",
+            "娴佹按绾挎敹灏? 鎹曡幏 %.1f | 鎺ㄧ悊 %.1f | 娓叉煋 %.1f | loop %.1f FPS",
             metrics.capture.fps,
             metrics.infer.fps,
             metrics.render.fps,
@@ -428,7 +428,7 @@ class ThreadedPipeline:
             return False
         key = display.get_key()
         if key in (ord("q"), 27):
-            logger.info("用户请求退出 (q/Esc).")
+            logger.info("鐢ㄦ埛璇锋眰閫€鍑?(q/Esc).")
             return True
         if key == ord(" "):
             controller.toggle()
@@ -444,3 +444,5 @@ def _write_fps(stats, metrics: Metrics) -> None:
     stats.loop_fps = snapshot["loop_fps"]
     stats.current_fps = snapshot["current_fps"]
     stats.speed_ms = snapshot["speed_ms"]
+
+

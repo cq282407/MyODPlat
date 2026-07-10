@@ -1,4 +1,4 @@
-# infer_pipeline.yaml — D8 frame source + visualization configuration
+﻿# infer_pipeline.yaml - D8 frame source + visualization configuration
 
 frame_source:
   camera:
@@ -9,11 +9,15 @@ frame_source:
 
 visualization:
   enabled: true
+  adapter: yolo
+  renderer: auto
+  theme: classic
+  prefer_contour_when_mask_exists: true
   use_label_mapping: true
   label_mapping:
     aircraft: 飞机
     oiltank: 油罐
-    overpass: 过街天桥
+    overpass: 立交桥
     playground: 操场
   color_mapping:
     aircraft: [0, 255, 0]
@@ -24,3 +28,4 @@ visualization:
   # font_path: C:/Windows/Fonts/msyh.ttc
   style:
     text_bg_alpha: 0.6
+    contour_fill_alpha: 0.18

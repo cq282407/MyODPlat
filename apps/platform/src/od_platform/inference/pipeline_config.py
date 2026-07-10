@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 # -*- coding:utf-8 -*-
 # @FileName  : pipeline_config.py
 # @Project   : ODPlatform
@@ -20,13 +20,17 @@ logger = logging.getLogger(__name__)
 def _to_bgr_tuple(value: Any) -> tuple[int, int, int]:
     if isinstance(value, (list, tuple)) and len(value) == 3:
         return int(value[0]), int(value[1]), int(value[2])
-    raise ValueError(f"颜色必须是 [B, G, R], 收到: {value!r}")
+    raise ValueError(f"颜色必须是 [B, G, R]，收到: {value!r}")
 
 
 @dataclass
 class PipelineConfig:
     camera_raw: dict[str, Any] = field(default_factory=dict)
     viz_enabled: bool = True
+    viz_adapter: str = "yolo"
+    viz_renderer: str = "auto"
+    viz_theme: str = "classic"
+    prefer_contour_when_mask_exists: bool = True
     use_label_mapping: bool = True
     label_mapping: dict[str, str] = field(default_factory=dict)
     color_mapping: dict[str, tuple[int, int, int]] = field(default_factory=dict)
@@ -42,12 +46,16 @@ class PipelineConfig:
         try:
             return CameraConfig(**self.camera_raw)
         except Exception as exc:
-            logger.warning("camera 配置无效, 走默认: %s", exc)
+            logger.warning("camera 配置无效，回退默认: %s", exc)
             return None
 
     def to_audit(self) -> dict[str, Any]:
         return {
             "viz_enabled": self.viz_enabled,
+            "viz_adapter": self.viz_adapter,
+            "viz_renderer": self.viz_renderer,
+            "viz_theme": self.viz_theme,
+            "prefer_contour_when_mask_exists": self.prefer_contour_when_mask_exists,
             "use_label_mapping": self.use_label_mapping,
             "label_mapping_n": len(self.label_mapping),
             "color_mapping_n": len(self.color_mapping),
@@ -69,22 +77,26 @@ def load_pipeline_config(yaml_path: str | Path | None) -> PipelineConfig:
             resolved = raw_path if raw_path.exists() else (RUNTIME_CONFIGS_DIR / raw_path.name)
 
     if not resolved.exists():
-        logger.warning("pipeline yaml 不存在, 用默认配置: %s", resolved)
+        logger.warning("pipeline yaml 不存在，使用默认配置: %s", resolved)
         return PipelineConfig()
 
     try:
         with resolved.open("r", encoding="utf-8") as handle:
             raw = yaml.safe_load(handle) or {}
     except Exception as exc:
-        logger.warning("pipeline yaml 解析失败 (%s), 用默认配置: %s", resolved, exc)
+        logger.warning("pipeline yaml 解析失败 (%s)，使用默认配置: %s", resolved, exc)
         return PipelineConfig()
 
     config = PipelineConfig()
     frame_source = raw.get("frame_source", {}) or {}
-    config.camera_raw = frame_source.get("camera", {}) or {}
+    config.camera_raw = dict(frame_source.get("camera", {}) or {})
 
     visualization = raw.get("visualization", {}) or {}
     config.viz_enabled = bool(visualization.get("enabled", True))
+    config.viz_adapter = str(visualization.get("adapter", "yolo") or "yolo").lower()
+    config.viz_renderer = str(visualization.get("renderer", "auto") or "auto").lower()
+    config.viz_theme = str(visualization.get("theme", "classic") or "classic").lower()
+    config.prefer_contour_when_mask_exists = bool(visualization.get("prefer_contour_when_mask_exists", True))
     config.use_label_mapping = bool(visualization.get("use_label_mapping", True))
     config.label_mapping = dict(visualization.get("label_mapping", {}) or {})
     config.color_mapping = {
@@ -94,13 +106,15 @@ def load_pipeline_config(yaml_path: str | Path | None) -> PipelineConfig:
     if "default_color" in visualization:
         config.default_color = _to_bgr_tuple(visualization["default_color"])
     config.font_path = visualization.get("font_path")
-    config.style_overrides = dict(visualization.get("style", {}) or {})
+    style_node = visualization.get("style", {}) or {}
+    config.style_overrides = dict(style_node) if isinstance(style_node, dict) else {}
 
     logger.info(
-        "pipeline 配置加载: %s, 美化=%s, 标签映射=%s, 颜色映射=%s",
+        "pipeline 配置加载: %s, 美化=%s, adapter=%s, renderer=%s, theme=%s",
         resolved,
         config.viz_enabled,
-        len(config.label_mapping),
-        len(config.color_mapping),
+        config.viz_adapter,
+        config.viz_renderer,
+        config.viz_theme,
     )
     return config
